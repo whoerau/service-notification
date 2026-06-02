@@ -23,3 +23,10 @@
 - 相关上下文或约束：Compose 不暴露端口，数据使用 Docker named volume；用户要求 Docker Compose 和 Coolify 都使用 `restart: on-failure:2`。
 - 最终决策和理由：Compose restart policy 改为 `on-failure:2`，并在 GitHub Actions 中增加 Coolify service restart API 调用：`/api/v1/services/{uuid}/restart?latest=true`。CI 使用 `COOLIFY_URL`、`COOLIFY_TOKEN`、`COOLIFY_SERVICE_UUID` secrets，避免把 Coolify 凭据写入仓库。
 - 剩余权衡、风险或后续工作：Coolify service 初次创建时设置 `instant_deploy=false`，需要用户先在 Coolify 填写 Telegram 等环境变量；GitHub secrets 也需要手动配置后 CI 才能自动触发部署。
+
+### 22:08 - 多架构镜像构建
+
+- 问题或设计问题：GHCR 镜像需要同时支持 amd64 和 arm64，以便 Coolify localhost 或其他服务器在不同 CPU 架构上都能拉取同一 tag。
+- 相关上下文或约束：项目依赖 `better-sqlite3` native 模块，跨平台构建必须让 Docker Buildx 在目标平台镜像中安装依赖，不能复用宿主平台产物。
+- 最终决策和理由：GitHub Actions Docker job 增加 QEMU 和 Buildx `platforms: linux/amd64,linux/arm64`；Dockerfile 仍在容器构建阶段执行 `yarn install`，让 native 依赖按目标平台生成。
+- 剩余权衡、风险或后续工作：arm64 构建会比单平台慢；如果未来 CI 时间过长，可以考虑 registry cache 或按需平台构建策略。

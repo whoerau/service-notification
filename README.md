@@ -54,7 +54,7 @@ yarn build
 yarn start
 ```
 
-GitHub Actions 会在 push 和 pull request 时执行 `format:check`、`lint`、`test`、`build`，并验证 Docker 镜像可以构建。push 到 `main` 时还会推送镜像到 GitHub Container Registry：
+GitHub Actions 会在 push 和 pull request 时执行 `format:check`、`lint`、`test`、`build`，并验证 Docker 镜像可以构建。push 到 `main` 时还会推送 `linux/amd64` 和 `linux/arm64` 多架构镜像到 GitHub Container Registry：
 
 ```text
 ghcr.io/whoerau/service-notification:latest
