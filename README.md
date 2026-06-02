@@ -61,6 +61,12 @@ ghcr.io/whoerau/service-notification:latest
 ghcr.io/whoerau/service-notification:sha-<commit>
 ```
 
+如果配置了以下 GitHub Secrets，`main` 分支推送镜像后还会调用 Coolify service restart API，并通过 `latest=true` 拉取最新镜像：
+
+- `COOLIFY_URL`
+- `COOLIFY_TOKEN`
+- `COOLIFY_SERVICE_UUID`
+
 ## Docker
 
 ```bash
@@ -83,6 +89,7 @@ docker compose logs -f service-notification
 
 Compose 默认不暴露服务端口；健康检查在容器内部访问 `/healthz`。
 Compose 使用 Docker named volume `service-notification-data` 保存 SQLite 数据。
+Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启。
 
 ## Telegram 命令
 

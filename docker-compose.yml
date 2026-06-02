@@ -9,7 +9,7 @@ services:
       DATABASE_PATH: /data/service-notification.sqlite
     volumes:
       - service-notification-data:/data
-    restart: unless-stopped
+    restart: on-failure:2
     healthcheck:
       test:
         [

@@ -16,3 +16,10 @@
 - 考虑过的方案：每个任务单独设置 headers 最灵活但容易遗漏；在统一 fetcher 中集中处理可以覆盖所有未来任务。激进方案如代理池或模拟浏览器指纹被拒绝，因为当前需求只是稳定访问公开状态接口。
 - 最终决策和理由：在 `HttpFetchService` 统一设置浏览器兼容 headers、请求超时、`408/429/5xx` 有限重试、`Retry-After` 支持和 jitter backoff；相关参数通过 `THIRD_PARTY_*` 环境变量调整。
 - 剩余权衡、风险或后续工作：如果后续某个站点必须执行 JavaScript，再按任务引入 Playwright fetcher；如果第三方明确要求专用 API token 或更严格频控，应优先走官方接口而不是增加绕过逻辑。
+
+### 22:02 - Coolify 部署触发与重启策略
+
+- 问题或设计问题：服务需要部署到 Coolify localhost server，但初始创建后不能启动，等待环境变量填写；CI 后续要能在镜像推送后触发 Coolify 部署。
+- 相关上下文或约束：Compose 不暴露端口，数据使用 Docker named volume；用户要求 Docker Compose 和 Coolify 都使用 `restart: on-failure:2`。
+- 最终决策和理由：Compose restart policy 改为 `on-failure:2`，并在 GitHub Actions 中增加 Coolify service restart API 调用：`/api/v1/services/{uuid}/restart?latest=true`。CI 使用 `COOLIFY_URL`、`COOLIFY_TOKEN`、`COOLIFY_SERVICE_UUID` secrets，避免把 Coolify 凭据写入仓库。
+- 剩余权衡、风险或后续工作：Coolify service 初次创建时设置 `instant_deploy=false`，需要用户先在 Coolify 填写 Telegram 等环境变量；GitHub secrets 也需要手动配置后 CI 才能自动触发部署。
