@@ -76,6 +76,8 @@ docker compose up -d --build
 docker compose logs -f service-notification
 ```
 
+Compose 默认不暴露服务端口；健康检查在容器内部访问 `/healthz`。
+
 ## Telegram 命令
 
 - `/start`：确认 bot 可用。
