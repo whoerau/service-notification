@@ -69,6 +69,10 @@ ghcr.io/whoerau/service-notification:sha-<commit>
 
 ## Docker
 
+Dockerfile 使用 BuildKit cache mounts 缓存 apt、Yarn、native prebuild 和
+node-gyp 产物；`linux/amd64`、`linux/arm64` 首次冷构建仍会分别安装 native
+依赖，后续构建依赖 CI 或本地 BuildKit cache 加速。
+
 ```bash
 docker build -t service-notification .
 docker run --rm \
@@ -79,6 +83,8 @@ docker run --rm \
 ```
 
 Docker 内默认数据库路径是 `/data/service-notification.sqlite`，需要挂载 `/data` 保留状态。
+镜像内进程使用 Node 官方镜像的 `node` 用户运行；如果在 Linux 上 bind mount
+`/data`，请确保该目录可被 uid `1000` 写入。
 
 也可以使用 Docker Compose：
 
