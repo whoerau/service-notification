@@ -11,6 +11,7 @@ Telegram 推送通知；同一个窗口只通知一次。
 - Drizzle ORM + SQLite 保存运行历史、通知投递、失败计数和去重状态。
 - Telegram bot 使用 Chat ID 白名单，白名单外消息静默忽略。
 - 支持多个白名单 chat，通知会发送给所有白名单 chat。
+- 第三方 API/网页访问统一使用浏览器兼容 headers、超时、429/5xx/408 重试和 `Retry-After` 退避。
 - 历史运行和投递记录默认保留 30 天，避免数据库持续增长。
 - `/healthz` 和 `/readyz` 健康检查接口。
 
@@ -27,6 +28,10 @@ HISTORY_RETENTION_DAYS=30
 FAILURE_ALERT_THRESHOLD=3
 PORT=3000
 CODEX_RADAR_CRON=*/10 * * * *
+THIRD_PARTY_USER_AGENT=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36
+THIRD_PARTY_MAX_RETRIES=2
+THIRD_PARTY_RETRY_BASE_DELAY_MS=750
+THIRD_PARTY_RETRY_MAX_DELAY_MS=10000
 ```
 
 `TELEGRAM_ALLOWED_CHAT_IDS` 用逗号分隔。非白名单 chat 的任何消息都会被忽略，不回复。
@@ -98,3 +103,13 @@ Compose 使用 Docker named volume `service-notification-data` 保存 SQLite 数
 - 去重：优先用当前窗口的 `id`、`opened_at` 等稳定字段组成 dedupe key，同一窗口只推送一次。
 
 如果访问失败，服务会累计连续失败次数；达到 `FAILURE_ALERT_THRESHOLD` 后发送一次失败告警，任务恢复成功后重置计数。
+
+## 第三方访问策略
+
+所有任务都应通过 `HttpFetchService` 访问第三方 API 或网页。它默认会：
+
+- 设置浏览器兼容的 `User-Agent`、`Accept`、`Accept-Language`、`Referer`、`Cache-Control` headers。
+- 对 `408`、`429` 和 `5xx` 做有限重试，支持服务端返回的 `Retry-After`。
+- 保留任务级超时和失败告警，避免网络抖动刷屏。
+
+这里不做验证码绕过、代理池或高频请求；CodexRadar 默认仍是每 10 分钟访问一次。

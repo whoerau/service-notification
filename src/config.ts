@@ -17,7 +17,16 @@ const envSchema = z.object({
     .string()
     .url()
     .default('https://codexradar.com/current.json'),
-  CODEX_RADAR_CRON: z.string().default('*/10 * * * *')
+  CODEX_RADAR_CRON: z.string().default('*/10 * * * *'),
+  THIRD_PARTY_USER_AGENT: z
+    .string()
+    .min(1)
+    .default(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+    ),
+  THIRD_PARTY_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  THIRD_PARTY_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).default(750),
+  THIRD_PARTY_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(0).default(10_000)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -52,6 +61,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         url: parsed.CODEX_RADAR_URL,
         cron: parsed.CODEX_RADAR_CRON
       }
+    },
+    thirdPartyRequests: {
+      userAgent: parsed.THIRD_PARTY_USER_AGENT,
+      maxRetries: parsed.THIRD_PARTY_MAX_RETRIES,
+      retryBaseDelayMs: parsed.THIRD_PARTY_RETRY_BASE_DELAY_MS,
+      retryMaxDelayMs: parsed.THIRD_PARTY_RETRY_MAX_DELAY_MS
     }
   };
 }

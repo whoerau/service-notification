@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const logger = createLogger(config);
   const database = openDatabase(config.database.path);
   const state = new StateStore(database.db, database.sqlite);
-  const fetcher = new HttpFetchService();
+  const fetcher = new HttpFetchService(config.thirdPartyRequests);
   const jobs = createJobs(config);
 
   let scheduler: SchedulerService | null = null;
