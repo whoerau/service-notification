@@ -37,4 +37,4 @@
 - 相关上下文或约束：native `node_modules` 不能跨架构复用；GitHub Actions 已使用 Buildx 和 GHA cache；项目使用 Yarn 1，运行产物仍外部引用多个依赖，不能只拷贝单文件 bundle。
 - 考虑过的方案：增加单独 production dependencies stage 可以缩小运行镜像，但隔离验证显示 Yarn 1 即使已有 `node_modules` 仍会进入 fetch 阶段，对双平台构建会额外增加网络和 native 安装风险。该方案暂不采用。
 - 最终决策和理由：Dockerfile 改为 BuildKit 语法，给 apt、Yarn、prebuild/npm cache 和 node-gyp 分平台挂载缓存；build stage 只拷贝 `tsconfig.json` 和 `src/`，避免 README、测试、notes 等无关变更让构建层失效；`.dockerignore` 改为只允许构建所需文件进入上下文。
-- 剩余权衡、风险或后续工作：首次冷构建仍必须分别完成 amd64/arm64 依赖安装，无法完全避免；缓存命中后重复构建会更快。运行镜像仍包含 dev dependencies，后续若要瘦身可评估改用可控的生产依赖安装流程或调整 bundling 外部依赖策略。
+- 剩余权衡、风险或后续工作：首次冷构建仍必须分别完成 amd64/arm64 依赖安装，无法完全避免；缓存命中后重复构建会更快。运行镜像仍包含 dev dependencies，后续若要瘦身可评估改用可控的生产依赖安装流程或调整 bundling 外部依赖策略。BuildKit 的 `COPY --link` 层不能依赖基础镜像中的用户名解析，运行阶段 ownership 和 `USER` 使用 Node 官方镜像的 numeric uid/gid `1000:1000`。
