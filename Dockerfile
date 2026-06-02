@@ -30,11 +30,11 @@ FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV DATABASE_PATH=/data/service-notification.sqlite
-RUN mkdir -p /data && chown node:node /data
-COPY --chown=node:node --link package.json ./package.json
-COPY --chown=node:node --from=deps /app/node_modules ./node_modules
-COPY --chown=node:node --from=build /app/dist ./dist
+RUN mkdir -p /data && chown 1000:1000 /data
+COPY --chown=1000:1000 --link package.json ./package.json
+COPY --chown=1000:1000 --from=deps /app/node_modules ./node_modules
+COPY --chown=1000:1000 --from=build /app/dist ./dist
 EXPOSE 3000
 VOLUME ["/data"]
-USER node
+USER 1000:1000
 CMD ["node", "--no-warnings=ExperimentalWarning", "dist/index.js"]
