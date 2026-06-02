@@ -77,6 +77,7 @@ docker compose logs -f service-notification
 ```
 
 Compose 默认不暴露服务端口；健康检查在容器内部访问 `/healthz`。
+Compose 使用 Docker named volume `service-notification-data` 保存 SQLite 数据。
 
 ## Telegram 命令
 
