@@ -32,6 +32,7 @@ async function main(): Promise<void> {
       allowedChatIds: config.telegram.allowedChatIds,
       state,
       getJobStatuses: () => scheduler?.statuses() ?? [],
+      timezone: config.scheduler.timezone,
       logger
     });
     notifiers.push(telegram);

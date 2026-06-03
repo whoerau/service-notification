@@ -289,14 +289,15 @@ describe('createCodexRadarJob', () => {
 
   it('suppresses known bad window ids and sources', async () => {
     const { database, state } = createTestStateStore();
-    const job = createCodexRadarJob(
-      loadConfig({
-        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
-        TELEGRAM_ALLOWED_CHAT_IDS: '123',
-        CODEX_RADAR_SUPPRESSED_WINDOW_IDS: 'window-1',
-        CODEX_RADAR_SUPPRESSED_SOURCES: 'https://example.com/bad-source'
-      })
+    const config = loadConfig({
+      CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123'
+    });
+    config.jobs.codexRadar.suppressedWindowIds.add('window-1');
+    config.jobs.codexRadar.suppressedSources.add(
+      'https://example.com/bad-source'
     );
+    const job = createCodexRadarJob(config);
     const idFetcher = createJsonFetcher(
       completeWindowPayload('2026-06-03T10:10:00+08:00', 'window-1')
     );

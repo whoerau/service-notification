@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  loadConfig,
-  parseAllowedChatIds,
-  parseStringSet
-} from '../src/config.js';
+import { loadConfig, parseAllowedChatIds } from '../src/config.js';
 
 describe('parseAllowedChatIds', () => {
   it('parses multiple comma separated chat ids', () => {
@@ -26,13 +22,19 @@ describe('loadConfig', () => {
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
     });
 
+    expect(config.scheduler.timezone).toBe('Asia/Hong_Kong');
     expect(config.jobs.codexRadar.openConfirmations).toBe(2);
     expect(config.jobs.codexRadar.predictionConfirmations).toBe(2);
     expect(config.jobs.codexRadar.suppressedWindowIds).toEqual(new Set());
     expect(config.jobs.codexRadar.suppressedSources).toEqual(new Set());
+    expect(config.thirdPartyRequests).toMatchObject({
+      maxRetries: 2,
+      retryBaseDelayMs: 750,
+      retryMaxDelayMs: 10_000
+    });
   });
 
-  it('parses CodexRadar suppression lists', () => {
+  it('keeps internal tuning defaults out of environment overrides', () => {
     const config = loadConfig({
       DATABASE_PATH: './data/test-config.sqlite',
       TELEGRAM_ALLOWED_CHAT_IDS: '123',
@@ -40,24 +42,18 @@ describe('loadConfig', () => {
       CODEX_RADAR_PREDICTION_CONFIRMATIONS: '4',
       CODEX_RADAR_SUPPRESSED_WINDOW_IDS: 'window-1, window-2,',
       CODEX_RADAR_SUPPRESSED_SOURCES:
-        'https://example.com/source, https://example.com/other'
+        'https://example.com/source, https://example.com/other',
+      THIRD_PARTY_MAX_RETRIES: '5',
+      THIRD_PARTY_RETRY_BASE_DELAY_MS: '100',
+      THIRD_PARTY_RETRY_MAX_DELAY_MS: '200'
     });
 
-    expect(config.jobs.codexRadar.openConfirmations).toBe(3);
-    expect(config.jobs.codexRadar.predictionConfirmations).toBe(4);
-    expect(config.jobs.codexRadar.suppressedWindowIds).toEqual(
-      new Set(['window-1', 'window-2'])
-    );
-    expect(config.jobs.codexRadar.suppressedSources).toEqual(
-      new Set(['https://example.com/source', 'https://example.com/other'])
-    );
-  });
-});
-
-describe('parseStringSet', () => {
-  it('trims comma separated strings and drops empty values', () => {
-    expect(parseStringSet(' one, two ,, three ')).toEqual(
-      new Set(['one', 'two', 'three'])
-    );
+    expect(config.jobs.codexRadar.openConfirmations).toBe(2);
+    expect(config.jobs.codexRadar.predictionConfirmations).toBe(2);
+    expect(config.jobs.codexRadar.suppressedWindowIds).toEqual(new Set());
+    expect(config.jobs.codexRadar.suppressedSources).toEqual(new Set());
+    expect(config.thirdPartyRequests.maxRetries).toBe(2);
+    expect(config.thirdPartyRequests.retryBaseDelayMs).toBe(750);
+    expect(config.thirdPartyRequests.retryMaxDelayMs).toBe(10_000);
   });
 });

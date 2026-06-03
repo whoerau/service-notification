@@ -12,6 +12,7 @@ export interface TelegramServiceOptions {
   allowedChatIds: Set<number>;
   state: StateStore;
   getJobStatuses(): RegisteredJobStatus[];
+  timezone: string;
   logger: Logger;
 }
 
@@ -89,7 +90,10 @@ export class TelegramService implements Notifier {
         '最近运行：',
         ...runs.map((run) => {
           const error = run.error ? ` (${run.error})` : '';
-          return `- ${run.jobId}: ${run.status} @ ${run.finishedAt}${error}`;
+          return `- ${run.jobId}: ${run.status} @ ${formatDisplayTime(
+            run.finishedAt,
+            this.options.timezone
+          )}${error}`;
         })
       ];
 
@@ -105,7 +109,10 @@ export class TelegramService implements Notifier {
         const state = stateByJob.get(job.id);
         const current = job.running ? 'running' : 'idle';
         const last = state
-          ? `${state.lastStatus} @ ${state.lastRunAt}`
+          ? `${state.lastStatus} @ ${formatDisplayTime(
+              state.lastRunAt,
+              this.options.timezone
+            )}`
           : 'no runs yet';
 
         return `- ${job.id}: ${job.name}, ${job.schedule}, ${current}, ${last}`;
@@ -132,4 +139,36 @@ function formatEnvelope(envelope: NotificationEnvelope): string {
   const severity = envelope.severity.toUpperCase();
 
   return [`[${severity}] ${envelope.title}`, '', envelope.message].join('\n');
+}
+
+export function formatDisplayTime(value: string, timezone: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.valueOf())) {
+    return value;
+  }
+
+  const formatter = new Intl.DateTimeFormat('en', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  const hour = parts.find((part) => part.type === 'hour')?.value;
+  const minute = parts.find((part) => part.type === 'minute')?.value;
+  const second = parts.find((part) => part.type === 'second')?.value;
+
+  if (!year || !month || !day || !hour || !minute || !second) {
+    return value;
+  }
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second} ${timezone}`;
 }
