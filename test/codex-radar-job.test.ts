@@ -6,6 +6,117 @@ import type { JobDefinition, JobResult } from '../src/types.js';
 import { createTestStateStore } from './helpers.js';
 
 describe('createCodexRadarJob', () => {
+  it('waits for two high prediction confirmations before emitting a prealert', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      loadConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createJsonFetcher(
+      highPredictionPayload('2026-06-03T10:10:00+08:00'),
+      highPredictionPayload('2026-06-03T10:20:00+08:00')
+    );
+
+    const first = await runAndPersist(job, state, fetcher);
+    const second = await runAndPersist(job, state, fetcher);
+
+    expect(first.notifications).toEqual([]);
+    expect(first.metadata).toMatchObject({
+      decision: 'closed',
+      reportReady: false,
+      predictionHighCount: 1,
+      predictionHighFirstSeenAt: '2026-06-03T10:10:00+08:00',
+      predictionHighLastSeenAt: '2026-06-03T10:10:00+08:00',
+      predictionHighLevel: '高概率'
+    });
+    expect(second.notifications).toHaveLength(1);
+    expect(second.notifications[0]).toMatchObject({
+      title: 'Codex 速蹬窗口高概率预提醒',
+      dedupeKey: 'codex-radar:prediction-prealert:2026-06-03',
+      severity: 'warning'
+    });
+    expect(second.notifications[0]?.message).toContain('连续确认：2 次');
+    expect(second.notifications[0]?.message).toContain('24小时概率：46%');
+    expect(second.notifications[0]?.message).toContain('48小时概率：55%');
+    expect(second.metadata).toMatchObject({
+      predictionHighCount: 2,
+      predictionPrealertDate: '2026-06-03',
+      predictionHighLevel: '高概率'
+    });
+
+    database.close();
+  });
+
+  it('does not repeat high prediction prealerts on the same local day', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      loadConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createJsonFetcher(
+      highPredictionPayload('2026-06-03T10:10:00+08:00'),
+      highPredictionPayload('2026-06-03T10:20:00+08:00'),
+      highPredictionPayload('2026-06-03T10:30:00+08:00')
+    );
+
+    await runAndPersist(job, state, fetcher);
+    const second = await runAndPersist(job, state, fetcher);
+    const third = await runAndPersist(job, state, fetcher);
+
+    expect(second.notifications).toHaveLength(1);
+    expect(third.notifications).toEqual([]);
+    expect(third.metadata).toMatchObject({
+      predictionHighCount: 3,
+      predictionPrealertDate: '2026-06-03'
+    });
+
+    database.close();
+  });
+
+  it('resets high prediction confirmations when the level drops', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      loadConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createJsonFetcher(
+      highPredictionPayload('2026-06-03T10:10:00+08:00'),
+      highPredictionPayload('2026-06-03T10:20:00+08:00', 'medium', true),
+      highPredictionPayload('2026-06-03T10:30:00+08:00'),
+      highPredictionPayload('2026-06-03T10:40:00+08:00')
+    );
+
+    const first = await runAndPersist(job, state, fetcher);
+    const second = await runAndPersist(job, state, fetcher);
+    const third = await runAndPersist(job, state, fetcher);
+    const fourth = await runAndPersist(job, state, fetcher);
+
+    expect(first.metadata).toMatchObject({
+      predictionHighCount: 1
+    });
+    expect(second.notifications).toEqual([]);
+    expect(second.metadata).toMatchObject({
+      predictionHighCount: 0
+    });
+    expect(third.notifications).toEqual([]);
+    expect(third.metadata).toMatchObject({
+      predictionHighCount: 1,
+      predictionHighFirstSeenAt: '2026-06-03T10:30:00+08:00'
+    });
+    expect(fourth.notifications).toHaveLength(1);
+    expect(fourth.notifications[0]?.dedupeKey).toBe(
+      'codex-radar:prediction-prealert:2026-06-03'
+    );
+
+    database.close();
+  });
+
   it('waits for two complete window confirmations before emitting a report', async () => {
     const { database, state } = createTestStateStore();
     const config = loadConfig({
@@ -234,6 +345,26 @@ function completeWindowPayload(
       opened_at: '2026-06-03T10:00:00+08:00',
       closed_at: '2026-06-03T10:05:00+08:00',
       source
+    }
+  };
+}
+
+function highPredictionPayload(
+  checkedAt: string,
+  level = '高概率',
+  shouldNotify = false
+) {
+  return {
+    checked_at: checkedAt,
+    status: 'none',
+    window_open: false,
+    message: '预测雷达显示出现强 reset 邻近信号。',
+    prediction: {
+      level,
+      probability_24h: 0.46,
+      probability_48h: 55,
+      expected_window: '未来 48 小时',
+      should_notify: shouldNotify
     }
   };
 }
