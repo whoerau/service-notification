@@ -22,23 +22,16 @@
 TELEGRAM_BOT_TOKEN=123456:telegram-token
 TELEGRAM_ALLOWED_CHAT_IDS=123456789,-1001234567890
 DATABASE_PATH=./data/service-notification.sqlite
-TZ=Asia/Singapore
+TZ=Asia/Hong_Kong
 HISTORY_RETENTION_DAYS=30
 FAILURE_ALERT_THRESHOLD=3
 PORT=3000
+CODEX_RADAR_URL=https://codexradar.com/current.json
 CODEX_RADAR_CRON=*/10 * * * *
-CODEX_RADAR_OPEN_CONFIRMATIONS=2
-CODEX_RADAR_PREDICTION_CONFIRMATIONS=2
-CODEX_RADAR_SUPPRESSED_WINDOW_IDS=
-CODEX_RADAR_SUPPRESSED_SOURCES=
-THIRD_PARTY_USER_AGENT=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36
-THIRD_PARTY_MAX_RETRIES=2
-THIRD_PARTY_RETRY_BASE_DELAY_MS=750
-THIRD_PARTY_RETRY_MAX_DELAY_MS=10000
 ```
 
 `TELEGRAM_ALLOWED_CHAT_IDS` 用逗号分隔。非白名单 chat 的任何消息都会被忽略，不回复。
-`CODEX_RADAR_SUPPRESSED_WINDOW_IDS` 和 `CODEX_RADAR_SUPPRESSED_SOURCES` 也用逗号分隔，用于屏蔽已知误报窗口或来源。
+CodexRadar 确认次数、误报抑制列表和第三方请求重试策略是代码内固定配置，不通过环境变量调整。
 
 ## 本地运行
 
@@ -99,6 +92,8 @@ docker compose logs -f service-notification
 
 Compose 默认不暴露服务端口；健康检查在容器内部访问 `/healthz`。
 Compose 使用 Docker named volume `service-notification-data` 保存 SQLite 数据。
+Compose 会将容器 `TZ` 默认设置为 `Asia/Hong_Kong`，可通过 `.env` 或 shell 环境变量覆盖。
+数据库中的运行、投递和去重时间仍以 UTC ISO 字符串保存；Telegram `/status`、`/jobs` 等上层展示会按 `TZ` 转换。
 Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启。
 
 ## Telegram 命令
@@ -115,10 +110,10 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 
 - 默认 cron：`*/10 * * * *`
 - 接口：`https://codexradar.com/current.json`
-- 预测预提醒：只按 `prediction.level` 判断页面等级；`high`、`high_probability` 或 `高概率` 连续达到 `CODEX_RADAR_PREDICTION_CONFIRMATIONS` 次后发送 warning 预提醒。`prediction.should_notify` 不参与判定，也不按概率数字阈值判定。
+- 预测预提醒：只按 `prediction.level` 判断页面等级；`high`、`high_probability` 或 `高概率` 连续 2 次后发送 warning 预提醒。`prediction.should_notify` 不参与判定，也不按概率数字阈值判定。
 - 预测去重：预提醒 dedupe key 按服务时区的本地日期生成，同一天最多发送一次；预测等级降到非高概率或缺失时会重置连续计数。
-- 判断：只使用 `current_window` 作为窗口证据；必须同时具备 `opened_at` 和 `closed_at`，并且同一窗口连续达到 `CODEX_RADAR_OPEN_CONFIRMATIONS` 次确认。
-- 抑制：`CODEX_RADAR_SUPPRESSED_WINDOW_IDS` 按窗口 ID 屏蔽，`CODEX_RADAR_SUPPRESSED_SOURCES` 按 `current_window.source` 精确屏蔽。
+- 判断：只使用 `current_window` 作为窗口证据；必须同时具备 `opened_at` 和 `closed_at`，并且同一窗口连续 2 次确认。
+- 抑制：代码内抑制列表可按窗口 ID 或 `current_window.source` 精确屏蔽已知误报，默认列表为空。
 - 通知：包含窗口标题、开启时间、关闭时间、范围、说明和来源；未出现关闭时间的窗口不会推送。
 - 去重：优先用当前窗口的 `id`，没有 `id` 时用开启/关闭时间等稳定字段组成 dedupe key，同一窗口只推送一次。
 
@@ -129,7 +124,7 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 所有任务都应通过 `HttpFetchService` 访问第三方 API 或网页。它默认会：
 
 - 设置浏览器兼容的 `User-Agent`、`Accept`、`Accept-Language`、`Referer`、`Cache-Control` headers。
-- 对 `408`、`429` 和 `5xx` 做有限重试，支持服务端返回的 `Retry-After`。
+- 对 `408`、`429` 和 `5xx` 做最多 2 次重试，支持服务端返回的 `Retry-After`。
 - 保留任务级超时和失败告警，避免网络抖动刷屏。
 
 这里不做验证码绕过、代理池或高频请求；CodexRadar 默认仍是每 10 分钟访问一次。

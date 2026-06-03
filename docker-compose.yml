@@ -4,9 +4,11 @@ services:
       context: .
     container_name: service-notification
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       DATABASE_PATH: /data/service-notification.sqlite
+      TZ: ${TZ:-Asia/Hong_Kong}
     volumes:
       - service-notification-data:/data
     restart: on-failure:2
