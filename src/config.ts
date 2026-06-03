@@ -13,21 +13,19 @@ const THIRD_PARTY_RETRY_BASE_DELAY_MS = 750;
 const THIRD_PARTY_RETRY_MAX_DELAY_MS = 10_000;
 
 const envSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
-  TELEGRAM_ALLOWED_CHAT_IDS: z.string().default(''),
-  DATABASE_PATH: z.string().default('./data/service-notification.sqlite'),
-  TZ: z.string().default('Asia/Hong_Kong'),
-  HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
-  FAILURE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(3),
-  PORT: z.coerce.number().int().positive().default(3000),
-  LOG_LEVEL: z
-    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
-    .default('info'),
-  CODEX_RADAR_URL: z
-    .string()
-    .url()
-    .default('https://codexradar.com/current.json'),
-  CODEX_RADAR_CRON: z.string().default('*/10 * * * *')
+  TELEGRAM_BOT_TOKEN: requiredEnvString('TELEGRAM_BOT_TOKEN'),
+  TELEGRAM_ALLOWED_CHAT_IDS: requiredEnvString('TELEGRAM_ALLOWED_CHAT_IDS'),
+  DATABASE_PATH: envString('./data/service-notification.sqlite'),
+  TZ: envString('Asia/Hong_Kong'),
+  HISTORY_RETENTION_DAYS: envPositiveInteger(30),
+  FAILURE_ALERT_THRESHOLD: envPositiveInteger(3),
+  PORT: envPositiveInteger(3000),
+  LOG_LEVEL: envEnum(
+    ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'],
+    'info'
+  ),
+  CODEX_RADAR_URL: envUrl('https://codexradar.com/current.json'),
+  CODEX_RADAR_CRON: envString('*/10 * * * *')
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -92,4 +90,56 @@ export function parseAllowedChatIds(raw: string): Set<number> {
         return parsed;
       })
   );
+}
+
+function requiredEnvString(name: string) {
+  return z.preprocess(
+    emptyEnvToUndefined,
+    z.string({ error: `${name} is required` }).min(1, `${name} is required`)
+  );
+}
+
+function envString(defaultValue: string) {
+  return z.preprocess(
+    emptyEnvToUndefined,
+    z.string().min(1).default(defaultValue)
+  );
+}
+
+function envUrl(defaultValue: string) {
+  return z.preprocess(
+    emptyEnvToUndefined,
+    z.string().url().default(defaultValue)
+  );
+}
+
+function envPositiveInteger(defaultValue: number) {
+  return z.preprocess(
+    emptyEnvToUndefined,
+    z.coerce.number().int().positive().default(defaultValue)
+  );
+}
+
+function envEnum<T extends readonly [string, ...string[]]>(
+  values: T,
+  defaultValue: T[number]
+) {
+  return z.preprocess(
+    emptyEnvToUndefined,
+    z.enum(values).default(defaultValue)
+  );
+}
+
+function emptyEnvToUndefined(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || /^\$\{[^}]+}$/.test(trimmed)) {
+    return undefined;
+  }
+
+  return value;
 }

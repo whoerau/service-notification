@@ -5,11 +5,13 @@ import type { FetchService } from '../src/fetch/fetch-service.js';
 import type { JobDefinition, JobResult } from '../src/types.js';
 import { createTestStateStore } from './helpers.js';
 
+type TestEnv = Parameters<typeof loadConfig>[0];
+
 describe('createCodexRadarJob', () => {
   it('waits for two high prediction confirmations before emitting a prealert', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -52,7 +54,7 @@ describe('createCodexRadarJob', () => {
   it('does not repeat high prediction prealerts on the same local day', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -80,7 +82,7 @@ describe('createCodexRadarJob', () => {
   it('resets high prediction confirmations when the level drops', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -119,7 +121,7 @@ describe('createCodexRadarJob', () => {
 
   it('waits for two complete window confirmations before emitting a report', async () => {
     const { database, state } = createTestStateStore();
-    const config = loadConfig({
+    const config = testConfig({
       CODEX_RADAR_URL: 'https://codexradar.com/current.json',
       CODEX_RADAR_CRON: '*/10 * * * *',
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
@@ -165,7 +167,7 @@ describe('createCodexRadarJob', () => {
   it('does not report a current open window without closed_at', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -199,7 +201,7 @@ describe('createCodexRadarJob', () => {
   it('does not report when the radar window is closed without complete times', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -228,7 +230,7 @@ describe('createCodexRadarJob', () => {
   it('resets confirmation when the window id changes', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -259,7 +261,7 @@ describe('createCodexRadarJob', () => {
   it('ignores last_window when current_window is absent', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
-      loadConfig({
+      testConfig({
         CODEX_RADAR_URL: 'https://codexradar.com/current.json',
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
@@ -289,7 +291,7 @@ describe('createCodexRadarJob', () => {
 
   it('suppresses known bad window ids and sources', async () => {
     const { database, state } = createTestStateStore();
-    const config = loadConfig({
+    const config = testConfig({
       CODEX_RADAR_URL: 'https://codexradar.com/current.json',
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
     });
@@ -329,6 +331,13 @@ describe('createCodexRadarJob', () => {
     database.close();
   });
 });
+
+function testConfig(env: TestEnv) {
+  return loadConfig({
+    TELEGRAM_BOT_TOKEN: 'token',
+    ...env
+  });
+}
 
 function completeWindowPayload(
   checkedAt: string,
