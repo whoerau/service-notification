@@ -1,7 +1,7 @@
 # service-notification
 
 一个 Node.js + TypeScript 常驻通知服务。初版每 10 分钟访问
-`https://codexradar.com/current.json`，当 CodexRadar 提供包含开启时间和关闭时间的完整速蹬窗口记录，并连续确认通过后，通过 Telegram 推送通知；同一个窗口只通知一次。
+`https://codexradar.com/current.json`，当 CodexRadar 预测雷达连续呈现高概率时先做一次 Telegram 预提醒；当接口后续提供包含开启时间和关闭时间的完整速蹬窗口记录，并连续确认通过后，再推送正式通知。同一个窗口只通知一次，预测预提醒每天最多一次。
 
 ## 功能
 
@@ -28,6 +28,7 @@ FAILURE_ALERT_THRESHOLD=3
 PORT=3000
 CODEX_RADAR_CRON=*/10 * * * *
 CODEX_RADAR_OPEN_CONFIRMATIONS=2
+CODEX_RADAR_PREDICTION_CONFIRMATIONS=2
 CODEX_RADAR_SUPPRESSED_WINDOW_IDS=
 CODEX_RADAR_SUPPRESSED_SOURCES=
 THIRD_PARTY_USER_AGENT=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36
@@ -114,6 +115,8 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 
 - 默认 cron：`*/10 * * * *`
 - 接口：`https://codexradar.com/current.json`
+- 预测预提醒：只按 `prediction.level` 判断页面等级；`high`、`high_probability` 或 `高概率` 连续达到 `CODEX_RADAR_PREDICTION_CONFIRMATIONS` 次后发送 warning 预提醒。`prediction.should_notify` 不参与判定，也不按概率数字阈值判定。
+- 预测去重：预提醒 dedupe key 按服务时区的本地日期生成，同一天最多发送一次；预测等级降到非高概率或缺失时会重置连续计数。
 - 判断：只使用 `current_window` 作为窗口证据；必须同时具备 `opened_at` 和 `closed_at`，并且同一窗口连续达到 `CODEX_RADAR_OPEN_CONFIRMATIONS` 次确认。
 - 抑制：`CODEX_RADAR_SUPPRESSED_WINDOW_IDS` 按窗口 ID 屏蔽，`CODEX_RADAR_SUPPRESSED_SOURCES` 按 `current_window.source` 精确屏蔽。
 - 通知：包含窗口标题、开启时间、关闭时间、范围、说明和来源；未出现关闭时间的窗口不会推送。

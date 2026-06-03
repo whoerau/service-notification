@@ -56,3 +56,11 @@
 - 考虑过的方案：升级 `drizzle-kit` 到最新稳定版无法消除告警，因为当前已解析到最新稳定 `0.31.10`；使用 `drizzle-kit` beta/rc 线会引入不必要的工具链风险；全局覆盖 `esbuild` 会影响 `tsup` 和 `tsx` 已解析到的较新版本。
 - 最终决策和理由：使用 Yarn v1 的完整传递路径 `resolutions` 覆盖 `drizzle-kit -> @esbuild-kit/esm-loader -> @esbuild-kit/core-utils` 下的 `esbuild` 到 `0.25.12`，只处理触发告警的传递依赖，同时保留 `tsup`、`tsx` 各自的新版 `esbuild` 解析。
 - 剩余权衡、风险或后续工作：这是传递依赖级别的安全覆盖，未来如果 `drizzle-kit` 稳定版移除 `@esbuild-kit/esm-loader`，应删除该 `resolutions` 并重新生成锁文件，避免长期保留临时覆盖。
+
+### 23:47 - CodexRadar 预测预提醒状态设计
+
+- 问题或设计问题：用户希望在预测雷达呈现高概率时提前预提醒，但需要连续两次确认以降低误报，并且同一天避免重复刷屏。
+- 相关上下文或约束：现有 CodexRadar 任务已经用 `task_states.metadata` 保存窗口候选状态和确认次数；预测字段已经从 API 解析并保存到运行 metadata，但不触发通知。用户明确要求“页面高概率”作为判定依据，并选择每天最多一次提醒。
+- 考虑过的方案：按 `prediction.should_notify` 可以贴近 API 作者的通知开关，但与截图页面语义不完全一致；按 24h/48h 概率数字阈值需要新增阈值配置并解释边界；新增数据库表能让预测状态更独立，但会扩大迁移面。
+- 最终决策和理由：只按 `prediction.level` 归一化后的 `high`、`high_probability`、`高概率` 计数，不使用 `should_notify` 和概率阈值。预测连续计数、首次/末次出现时间和当天预提醒日期继续保存在现有任务 metadata 中，预提醒 dedupe key 使用服务时区的本地日期。
+- 剩余权衡、风险或后续工作：如果 API 后续改变 level 文案，需要扩展归一化列表；高概率跨天持续时，新的一天首次成功轮询会再次提醒，因为历史上已经满足连续确认条件。
