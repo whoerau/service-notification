@@ -1,8 +1,7 @@
 # service-notification
 
 一个 Node.js + TypeScript 常驻通知服务。初版每 10 分钟访问
-`https://codexradar.com/current.json`，当 CodexRadar 显示有效速蹬窗口时，通过
-Telegram 推送通知；同一个窗口只通知一次。
+`https://codexradar.com/current.json`，当 CodexRadar 提供包含开启时间和关闭时间的完整速蹬窗口记录，并连续确认通过后，通过 Telegram 推送通知；同一个窗口只通知一次。
 
 ## 功能
 
@@ -28,6 +27,9 @@ HISTORY_RETENTION_DAYS=30
 FAILURE_ALERT_THRESHOLD=3
 PORT=3000
 CODEX_RADAR_CRON=*/10 * * * *
+CODEX_RADAR_OPEN_CONFIRMATIONS=2
+CODEX_RADAR_SUPPRESSED_WINDOW_IDS=
+CODEX_RADAR_SUPPRESSED_SOURCES=
 THIRD_PARTY_USER_AGENT=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36
 THIRD_PARTY_MAX_RETRIES=2
 THIRD_PARTY_RETRY_BASE_DELAY_MS=750
@@ -35,6 +37,7 @@ THIRD_PARTY_RETRY_MAX_DELAY_MS=10000
 ```
 
 `TELEGRAM_ALLOWED_CHAT_IDS` 用逗号分隔。非白名单 chat 的任何消息都会被忽略，不回复。
+`CODEX_RADAR_SUPPRESSED_WINDOW_IDS` 和 `CODEX_RADAR_SUPPRESSED_SOURCES` 也用逗号分隔，用于屏蔽已知误报窗口或来源。
 
 ## 本地运行
 
@@ -111,9 +114,10 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 
 - 默认 cron：`*/10 * * * *`
 - 接口：`https://codexradar.com/current.json`
-- 判断：`window_open === true`，或 `status/current_window` 显示 open。
-- 通知：包含窗口标题、开启时间、关闭时间、范围、说明和来源；开启中的窗口关闭时间显示为“尚未关闭”。
-- 去重：优先用当前窗口的 `id`、`opened_at` 等稳定字段组成 dedupe key，同一窗口只推送一次。
+- 判断：只使用 `current_window` 作为窗口证据；必须同时具备 `opened_at` 和 `closed_at`，并且同一窗口连续达到 `CODEX_RADAR_OPEN_CONFIRMATIONS` 次确认。
+- 抑制：`CODEX_RADAR_SUPPRESSED_WINDOW_IDS` 按窗口 ID 屏蔽，`CODEX_RADAR_SUPPRESSED_SOURCES` 按 `current_window.source` 精确屏蔽。
+- 通知：包含窗口标题、开启时间、关闭时间、范围、说明和来源；未出现关闭时间的窗口不会推送。
+- 去重：优先用当前窗口的 `id`，没有 `id` 时用开启/关闭时间等稳定字段组成 dedupe key，同一窗口只推送一次。
 
 如果访问失败，服务会累计连续失败次数；达到 `FAILURE_ALERT_THRESHOLD` 后发送一次失败告警，任务恢复成功后重置计数。
 

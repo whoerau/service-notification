@@ -38,3 +38,13 @@
 - 考虑过的方案：增加单独 production dependencies stage 可以缩小运行镜像，但隔离验证显示 Yarn 1 即使已有 `node_modules` 仍会进入 fetch 阶段，对双平台构建会额外增加网络和 native 安装风险。该方案暂不采用。
 - 最终决策和理由：Dockerfile 改为 BuildKit 语法，给 apt、Yarn、prebuild/npm cache 和 node-gyp 分平台挂载缓存；build stage 只拷贝 `tsconfig.json` 和 `src/`，避免 README、测试、notes 等无关变更让构建层失效；`.dockerignore` 改为只允许构建所需文件进入上下文。
 - 剩余权衡、风险或后续工作：首次冷构建仍必须分别完成 amd64/arm64 依赖安装，无法完全避免；缓存命中后重复构建会更快。运行镜像仍包含 dev dependencies，后续若要瘦身可评估改用可控的生产依赖安装流程或调整 bundling 外部依赖策略。BuildKit 的 `COPY --link` 层不能依赖基础镜像中的用户名解析，运行阶段 ownership 和 `USER` 使用 Node 官方镜像的 numeric uid/gid `1000:1000`。
+
+## 2026-06-03
+
+### 18:37 - CodexRadar 误报降噪策略
+
+- 问题或设计问题：CodexRadar 的 `current.json` 可能错误声明窗口开启，单次 `open` 即发送 critical 会把源站 bug 放大成误报。
+- 相关上下文或约束：服务默认每 10 分钟轮询一次；用户明确要求只在开启时间和关闭时间同时具备时才发消息，意味着不再报告“尚未关闭”的实时窗口。
+- 考虑过的方案：只做连续两次 `open` 确认可以过滤瞬时抖动，但无法处理源站持续错误；抓取 source/X 作为二次确认会引入更不稳定的外部依赖；新增数据库表会扩大迁移面。
+- 最终决策和理由：在 CodexRadar 任务内使用现有 `task_states.metadata` 保存候选状态，要求同一窗口连续达到确认次数，并且 `opened_at` 与 `closed_at` 同时存在后才发送“窗口记录已确认”通知；同时提供本地 window id/source 抑制列表处理已知坏记录。
+- 剩余权衡、风险或后续工作：该策略会牺牲实时性，只有完整窗口记录出现后才通知；如果未来需要自动判断持续性源站错误，仍需要引入独立可信状态源或人工审核流程。

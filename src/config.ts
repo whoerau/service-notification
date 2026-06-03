@@ -18,6 +18,9 @@ const envSchema = z.object({
     .url()
     .default('https://codexradar.com/current.json'),
   CODEX_RADAR_CRON: z.string().default('*/10 * * * *'),
+  CODEX_RADAR_OPEN_CONFIRMATIONS: z.coerce.number().int().positive().default(2),
+  CODEX_RADAR_SUPPRESSED_WINDOW_IDS: z.string().default(''),
+  CODEX_RADAR_SUPPRESSED_SOURCES: z.string().default(''),
   THIRD_PARTY_USER_AGENT: z
     .string()
     .min(1)
@@ -59,7 +62,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     jobs: {
       codexRadar: {
         url: parsed.CODEX_RADAR_URL,
-        cron: parsed.CODEX_RADAR_CRON
+        cron: parsed.CODEX_RADAR_CRON,
+        openConfirmations: parsed.CODEX_RADAR_OPEN_CONFIRMATIONS,
+        suppressedWindowIds: parseStringSet(
+          parsed.CODEX_RADAR_SUPPRESSED_WINDOW_IDS
+        ),
+        suppressedSources: parseStringSet(parsed.CODEX_RADAR_SUPPRESSED_SOURCES)
       }
     },
     thirdPartyRequests: {
@@ -86,5 +94,14 @@ export function parseAllowedChatIds(raw: string): Set<number> {
 
         return parsed;
       })
+  );
+}
+
+export function parseStringSet(raw: string): Set<string> {
+  return new Set(
+    raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
   );
 }

@@ -259,18 +259,18 @@ export class StateStore {
   }
 
   async getTaskStates(): Promise<TaskState[]> {
-    return this.db
+    return this.db.select().from(taskStates).all().map(taskStateFromRow);
+  }
+
+  async getTaskState(jobId: string): Promise<TaskState | null> {
+    const row = this.db
       .select()
       .from(taskStates)
-      .all()
-      .map((row) => ({
-        jobId: row.jobId,
-        lastStatus: row.lastStatus,
-        lastRunAt: row.lastRunAt,
-        lastSuccessAt: row.lastSuccessAt,
-        lastFailureAt: row.lastFailureAt,
-        metadata: parseMetadata(row.metadataJson)
-      }));
+      .where(eq(taskStates.jobId, jobId))
+      .limit(1)
+      .get();
+
+    return row ? taskStateFromRow(row) : null;
   }
 
   async cleanupHistory(
@@ -320,4 +320,15 @@ function parseMetadata(value: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function taskStateFromRow(row: typeof taskStates.$inferSelect): TaskState {
+  return {
+    jobId: row.jobId,
+    lastStatus: row.lastStatus,
+    lastRunAt: row.lastRunAt,
+    lastSuccessAt: row.lastSuccessAt,
+    lastFailureAt: row.lastFailureAt,
+    metadata: parseMetadata(row.metadataJson)
+  };
 }
