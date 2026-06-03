@@ -19,6 +19,7 @@ describe('loadConfig', () => {
   it('loads CodexRadar false-positive guard defaults', () => {
     const config = loadConfig({
       DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
     });
 
@@ -37,6 +38,7 @@ describe('loadConfig', () => {
   it('keeps internal tuning defaults out of environment overrides', () => {
     const config = loadConfig({
       DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
       TELEGRAM_ALLOWED_CHAT_IDS: '123',
       CODEX_RADAR_OPEN_CONFIRMATIONS: '3',
       CODEX_RADAR_PREDICTION_CONFIRMATIONS: '4',
@@ -55,5 +57,85 @@ describe('loadConfig', () => {
     expect(config.thirdPartyRequests.maxRetries).toBe(2);
     expect(config.thirdPartyRequests.retryBaseDelayMs).toBe(750);
     expect(config.thirdPartyRequests.retryMaxDelayMs).toBe(10_000);
+  });
+
+  it('uses source defaults for blank environment values', () => {
+    const config = loadConfig({
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      DATABASE_PATH: '',
+      TZ: '',
+      HISTORY_RETENTION_DAYS: '',
+      FAILURE_ALERT_THRESHOLD: '',
+      PORT: '',
+      LOG_LEVEL: '',
+      CODEX_RADAR_URL: '',
+      CODEX_RADAR_CRON: ''
+    });
+
+    expect(config.telegram.botToken).toBe('token');
+    expect(config.telegram.allowedChatIds).toEqual(new Set([123]));
+    expect(config.database.path).toContain('data/service-notification.sqlite');
+    expect(config.scheduler.timezone).toBe('Asia/Hong_Kong');
+    expect(config.scheduler.historyRetentionDays).toBe(30);
+    expect(config.scheduler.failureAlertThreshold).toBe(3);
+    expect(config.health.port).toBe(3000);
+    expect(config.logging.level).toBe('info');
+    expect(config.jobs.codexRadar.url).toBe(
+      'https://codexradar.com/current.json'
+    );
+    expect(config.jobs.codexRadar.cron).toBe('*/10 * * * *');
+  });
+
+  it('uses source defaults for unresolved compose placeholders', () => {
+    const config = loadConfig({
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      DATABASE_PATH: './data/test-config.sqlite',
+      TZ: '${TZ:-Asia/Hong_Kong}',
+      HISTORY_RETENTION_DAYS: '${HISTORY_RETENTION_DAYS:-30}',
+      FAILURE_ALERT_THRESHOLD: '${FAILURE_ALERT_THRESHOLD:-3}',
+      PORT: '${PORT:-3000}',
+      LOG_LEVEL: '${LOG_LEVEL:-info}',
+      CODEX_RADAR_URL:
+        '${CODEX_RADAR_URL:-https://codexradar.com/current.json}',
+      CODEX_RADAR_CRON: '${CODEX_RADAR_CRON:-*/10 * * * *}'
+    });
+
+    expect(config.telegram.botToken).toBe('token');
+    expect(config.telegram.allowedChatIds).toEqual(new Set([123]));
+    expect(config.scheduler.timezone).toBe('Asia/Hong_Kong');
+    expect(config.scheduler.historyRetentionDays).toBe(30);
+    expect(config.scheduler.failureAlertThreshold).toBe(3);
+    expect(config.health.port).toBe(3000);
+    expect(config.logging.level).toBe('info');
+    expect(config.jobs.codexRadar.url).toBe(
+      'https://codexradar.com/current.json'
+    );
+    expect(config.jobs.codexRadar.cron).toBe('*/10 * * * *');
+  });
+
+  it('requires Telegram delivery configuration', () => {
+    expect(() =>
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123',
+        DATABASE_PATH: './data/test-config.sqlite'
+      })
+    ).toThrow('TELEGRAM_BOT_TOKEN is required');
+    expect(() =>
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '${TELEGRAM_BOT_TOKEN}',
+        TELEGRAM_ALLOWED_CHAT_IDS: '${TELEGRAM_ALLOWED_CHAT_IDS}',
+        DATABASE_PATH: './data/test-config.sqlite'
+      })
+    ).toThrow('TELEGRAM_BOT_TOKEN is required');
+    expect(() =>
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: 'token',
+        TELEGRAM_ALLOWED_CHAT_IDS: '',
+        DATABASE_PATH: './data/test-config.sqlite'
+      })
+    ).toThrow('TELEGRAM_ALLOWED_CHAT_IDS is required');
   });
 });
