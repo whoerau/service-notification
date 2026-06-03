@@ -48,3 +48,11 @@
 - 考虑过的方案：只做连续两次 `open` 确认可以过滤瞬时抖动，但无法处理源站持续错误；抓取 source/X 作为二次确认会引入更不稳定的外部依赖；新增数据库表会扩大迁移面。
 - 最终决策和理由：在 CodexRadar 任务内使用现有 `task_states.metadata` 保存候选状态，要求同一窗口连续达到确认次数，并且 `opened_at` 与 `closed_at` 同时存在后才发送“窗口记录已确认”通知；同时提供本地 window id/source 抑制列表处理已知坏记录。
 - 剩余权衡、风险或后续工作：该策略会牺牲实时性，只有完整窗口记录出现后才通知；如果未来需要自动判断持续性源站错误，仍需要引入独立可信状态源或人工审核流程。
+
+### 22:00 - esbuild Dependabot 告警处理
+
+- 问题或设计问题：GitHub Dependabot 告警 GHSA-67mh-4wv8-2f99 指出 `yarn.lock` 中存在 `esbuild@0.18.20`，修复版本要求 `>=0.25.0`。
+- 相关上下文或约束：旧版 `esbuild` 不是项目直接依赖，而是 `drizzle-kit -> @esbuild-kit/esm-loader -> @esbuild-kit/core-utils` 引入；`drizzle-kit` 当前最新稳定版仍保留这条依赖链，`@esbuild-kit/core-utils` 最新版也仍固定 `esbuild~0.18.20`。
+- 考虑过的方案：升级 `drizzle-kit` 到最新稳定版无法消除告警，因为当前已解析到最新稳定 `0.31.10`；使用 `drizzle-kit` beta/rc 线会引入不必要的工具链风险；全局覆盖 `esbuild` 会影响 `tsup` 和 `tsx` 已解析到的较新版本。
+- 最终决策和理由：使用 Yarn v1 的完整传递路径 `resolutions` 覆盖 `drizzle-kit -> @esbuild-kit/esm-loader -> @esbuild-kit/core-utils` 下的 `esbuild` 到 `0.25.12`，只处理触发告警的传递依赖，同时保留 `tsup`、`tsx` 各自的新版 `esbuild` 解析。
+- 剩余权衡、风险或后续工作：这是传递依赖级别的安全覆盖，未来如果 `drizzle-kit` 稳定版移除 `@esbuild-kit/esm-loader`，应删除该 `resolutions` 并重新生成锁文件，避免长期保留临时覆盖。
