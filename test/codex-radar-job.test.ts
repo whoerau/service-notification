@@ -164,6 +164,58 @@ describe('createCodexRadarJob', () => {
     database.close();
   });
 
+  it('reports a direct reset from last_window after two confirmations', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      testConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createJsonFetcher(
+      directResetPayload('2026-06-04T08:43:40+08:00'),
+      directResetPayload('2026-06-04T08:53:40+08:00')
+    );
+
+    const first = await runAndPersist(job, state, fetcher);
+    const second = await runAndPersist(job, state, fetcher);
+
+    expect(first.notifications).toEqual([]);
+    expect(first.metadata).toMatchObject({
+      decision: 'pending',
+      reportReady: false,
+      candidateWindowId: 'codex-speed-window-2026-06-04-codex',
+      candidateSource: 'https://x.com/thsottiaux/status/2062329981548802523',
+      candidateOpenCount: 1,
+      directReset: true,
+      openedAt: '2026-06-04T08:25:58+08:00',
+      closedAt: '2026-06-04T08:25:58+08:00'
+    });
+    expect(second.notifications).toHaveLength(1);
+    expect(second.notifications[0]).toMatchObject({
+      title: 'Codex 使用限制已直接重置',
+      dedupeKey:
+        'codex-radar:window-report:codex-speed-window-2026-06-04-codex',
+      severity: 'critical',
+      metadata: {
+        directReset: true,
+        source: 'https://x.com/thsottiaux/status/2062329981548802523',
+        windowMinutes: 0,
+        windowHuman: '无窗'
+      }
+    });
+    expect(second.notifications[0]?.message).toContain('无速蹬窗口直接重置');
+    expect(second.notifications[0]?.message).toContain(
+      '重置时间：2026-06-04T08:25:58+08:00'
+    );
+    expect(second.notifications[0]?.message).toContain('范围：所有付费计划');
+    expect(second.notifications[0]?.message).toContain(
+      '来源：https://x.com/thsottiaux/status/2062329981548802523'
+    );
+
+    database.close();
+  });
+
   it('does not report a current open window without closed_at', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
@@ -258,7 +310,7 @@ describe('createCodexRadarJob', () => {
     database.close();
   });
 
-  it('ignores last_window when current_window is absent', async () => {
+  it('ignores last_window while a current window is open', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
       testConfig({
@@ -270,11 +322,18 @@ describe('createCodexRadarJob', () => {
       checked_at: '2026-06-03T10:10:00+08:00',
       status: 'open',
       window_open: true,
-      last_window: {
-        id: 'window-1',
+      current_window: {
+        id: 'current-window',
         state: 'open',
-        opened_at: '2026-06-03T10:00:00+08:00',
-        closed_at: '2026-06-03T10:05:00+08:00'
+        opened_at: '2026-06-03T10:00:00+08:00'
+      },
+      last_window: {
+        id: 'old-direct-reset',
+        status: 'closed',
+        opened_at: '2026-06-03T09:00:00+08:00',
+        closed_at: '2026-06-03T09:00:00+08:00',
+        window_minutes: 0,
+        window_human: '无窗'
       }
     });
 
@@ -283,7 +342,9 @@ describe('createCodexRadarJob', () => {
     expect(result.notifications).toEqual([]);
     expect(result.metadata).toMatchObject({
       decision: 'insufficient',
-      reportReady: false
+      reportReady: false,
+      windowOpen: true,
+      openedAt: '2026-06-03T10:00:00+08:00'
     });
 
     database.close();
@@ -375,6 +436,43 @@ function highPredictionPayload(
       probability_48h: 55,
       expected_window: '未来 48 小时',
       should_notify: shouldNotify
+    }
+  };
+}
+
+function directResetPayload(checkedAt: string) {
+  return {
+    checked_at: checkedAt,
+    status: 'none',
+    window_open: false,
+    message: '暂无正式速蹬窗口',
+    current_window: {
+      state: 'none',
+      message: '当前没有开启的速蹬窗口',
+      opened_at: null,
+      source: null
+    },
+    last_window: {
+      id: 'codex-speed-window-2026-06-04-codex',
+      title: 'Codex 可靠性事故补偿重置',
+      status: 'closed',
+      opened_at: '2026-06-04T08:25:58+08:00',
+      closed_at: '2026-06-04T08:25:58+08:00',
+      window_minutes: 0,
+      window_human: '无窗',
+      scope: '所有付费计划',
+      summary:
+        'Tibo 表示过去 24 小时内有三次影响 Codex 可靠性的小事故，并已为所有付费计划重置 Codex 使用限制。',
+      sources: [
+        {
+          type: 'window_opened',
+          url: null
+        },
+        {
+          type: 'window_closed',
+          url: 'https://x.com/thsottiaux/status/2062329981548802523'
+        }
+      ]
     }
   };
 }

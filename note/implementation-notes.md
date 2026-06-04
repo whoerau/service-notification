@@ -88,3 +88,11 @@
 - 相关上下文或约束：不应把业务默认值硬编码到 Coolify compose；默认值应留在源码配置层。但 Telegram 是服务的核心通知通道，`TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_IDS` 为空必须失败。
 - 最终决策和理由：`loadConfig` 对可默认的部署配置项将空字符串和未展开占位符视为未配置，再应用源码默认值；Telegram token 和 chat ids 继续使用必填校验，避免服务静默以无通知模式启动。
 - 剩余权衡、风险或后续工作：如果未来新增必填外部集成凭据，需要明确使用必填 helper；普通运维项才能使用空值兜底 helper。
+
+### 11:44 - CodexRadar 无窗直接重置提醒
+
+- 问题或设计问题：CodexRadar 出现无速蹬窗口但直接完成额度重置的场景，`current_window` 只表示当前无开启窗口，完整事件记录落在 `last_window`，旧逻辑会漏掉正式提醒。
+- 相关上下文或约束：此前为了降低误报，正式通知只接受同时具备 `opened_at` 和 `closed_at` 的完整记录，并要求同一候选连续确认 2 次；用户希望这次 direct reset 也要提醒，但仍选择沿用两次确认。
+- 考虑过的方案：首次看到 `last_window` 就立即提醒速度最快，但会重新放大源站单次数据错误；只记录 metadata 不提醒不能满足用户目标；为 direct reset 单独建表会扩大迁移面且与现有候选确认状态重复。
+- 最终决策和理由：复用现有任务 metadata 中的候选窗口确认状态，优先处理完整 `current_window`；只有当前没有开启窗口时，才允许完整 `last_window` 进入同一套候选确认与 dedupe 流程。通过 `opened_at === closed_at`、`window_minutes === 0` 或 `window_human` 为“无窗/No window”标记 direct reset，并使用单独通知标题和正文。
+- 剩余权衡、风险或后续工作：部署后可能会对最新的 `last_window` 补发一次正式提醒，这是为了覆盖之前漏掉的直接重置；如果 CodexRadar 未来改变 `last_window` 语义，需要同步调整任务规则文档和候选选择逻辑。
