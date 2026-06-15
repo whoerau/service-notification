@@ -2,6 +2,7 @@
 
 任务 ID：`codex-radar`
 
+- 默认不注册；部署环境设置 `CODEX_RADAR_ENABLED=true` 后才启用。
 - 默认周期：每 10 分钟访问 `https://codexradar.com/current.json`。
 - 状态来源：只使用 CodexRadar JSON 接口，不抓取网页 DOM。
 - 基本原则：先确认、再通知；同一事件不重复通知。

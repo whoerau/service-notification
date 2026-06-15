@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
-import { createCodexRadarJob } from '../src/jobs/codex-radar-job.js';
+import { createCodexRadarJob } from '../src/services/codex-radar/job.js';
 import type { FetchService } from '../src/fetch/fetch-service.js';
 import type { JobDefinition, JobResult } from '../src/types.js';
 import { createTestStateStore } from './helpers.js';
@@ -356,8 +356,8 @@ describe('createCodexRadarJob', () => {
       CODEX_RADAR_URL: 'https://codexradar.com/current.json',
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
     });
-    config.jobs.codexRadar.suppressedWindowIds.add('window-1');
-    config.jobs.codexRadar.suppressedSources.add(
+    config.services.codexRadar.suppressedWindowIds.add('window-1');
+    config.services.codexRadar.suppressedSources.add(
       'https://example.com/bad-source'
     );
     const job = createCodexRadarJob(config);

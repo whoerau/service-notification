@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { AppConfig } from '../config.js';
-import type { JobDefinition, NotificationEnvelope } from '../types.js';
+import type { AppConfig } from '../../config.js';
+import type { JobDefinition, NotificationEnvelope } from '../../types.js';
 
 const sourceSchema = z
   .object({
@@ -121,14 +121,17 @@ export function createCodexRadarJob(config: AppConfig): JobDefinition {
   return {
     id,
     name: 'CodexRadar 速蹬窗口监控',
-    schedule: config.jobs.codexRadar.cron,
+    schedule: config.services.codexRadar.cron,
     timezone: config.scheduler.timezone,
     timeoutMs: 30_000,
     async run({ fetcher, state, signal }) {
-      const response = await fetcher.json<unknown>(config.jobs.codexRadar.url, {
-        timeoutMs: 20_000,
-        signal
-      });
+      const response = await fetcher.json<unknown>(
+        config.services.codexRadar.url,
+        {
+          timeoutMs: 20_000,
+          signal
+        }
+      );
       const data = codexRadarSchema.parse(response.data);
       const previousState = await state.getTaskState(id);
       const evaluation = evaluateCodexRadarWindow(
@@ -233,7 +236,7 @@ function evaluateCodexRadarWindow(
       : observedAt;
   const candidateLastSeenAt = observedAt;
   const reportReady =
-    candidateOpenCount >= config.jobs.codexRadar.openConfirmations;
+    candidateOpenCount >= config.services.codexRadar.openConfirmations;
   const decision: CodexRadarDecision = reportReady ? 'confirmed' : 'pending';
 
   return {
@@ -291,7 +294,7 @@ function evaluateCodexRadarPrediction(
       : observedAt;
   const predictionHighLastSeenAt = observedAt;
   const shouldPrealert =
-    predictionHighCount >= config.jobs.codexRadar.predictionConfirmations &&
+    predictionHighCount >= config.services.codexRadar.predictionConfirmations &&
     previousPrealertDate !== localDate;
   const predictionPrealertDate = shouldPrealert
     ? localDate
@@ -553,11 +556,11 @@ function suppressionReasonFor(
   source: string | undefined,
   config: AppConfig
 ): 'window_id' | 'source' | undefined {
-  if (config.jobs.codexRadar.suppressedWindowIds.has(windowId)) {
+  if (config.services.codexRadar.suppressedWindowIds.has(windowId)) {
     return 'window_id';
   }
 
-  if (source && config.jobs.codexRadar.suppressedSources.has(source)) {
+  if (source && config.services.codexRadar.suppressedSources.has(source)) {
     return 'source';
   }
 

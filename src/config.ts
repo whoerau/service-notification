@@ -24,6 +24,7 @@ const envSchema = z.object({
     ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'],
     'info'
   ),
+  CODEX_RADAR_ENABLED: envBoolean(false),
   CODEX_RADAR_URL: envUrl('https://codexradar.com/current.json'),
   CODEX_RADAR_CRON: envString('*/10 * * * *')
 });
@@ -55,8 +56,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     logging: {
       level: parsed.LOG_LEVEL
     },
-    jobs: {
+    services: {
       codexRadar: {
+        enabled: parsed.CODEX_RADAR_ENABLED,
         url: parsed.CODEX_RADAR_URL,
         cron: parsed.CODEX_RADAR_CRON,
         openConfirmations: CODEX_RADAR_OPEN_CONFIRMATIONS,
@@ -128,6 +130,31 @@ function envEnum<T extends readonly [string, ...string[]]>(
     emptyEnvToUndefined,
     z.enum(values).default(defaultValue)
   );
+}
+
+function envBoolean(defaultValue: boolean) {
+  return z.preprocess((value) => {
+    const normalized = emptyEnvToUndefined(value);
+
+    if (typeof normalized !== 'string') {
+      return normalized;
+    }
+
+    switch (normalized.trim().toLowerCase()) {
+      case 'true':
+      case '1':
+      case 'yes':
+      case 'on':
+        return true;
+      case 'false':
+      case '0':
+      case 'no':
+      case 'off':
+        return false;
+      default:
+        return normalized;
+    }
+  }, z.boolean().default(defaultValue));
 }
 
 function emptyEnvToUndefined(value: unknown): unknown {

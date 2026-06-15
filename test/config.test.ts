@@ -24,10 +24,11 @@ describe('loadConfig', () => {
     });
 
     expect(config.scheduler.timezone).toBe('Asia/Hong_Kong');
-    expect(config.jobs.codexRadar.openConfirmations).toBe(2);
-    expect(config.jobs.codexRadar.predictionConfirmations).toBe(2);
-    expect(config.jobs.codexRadar.suppressedWindowIds).toEqual(new Set());
-    expect(config.jobs.codexRadar.suppressedSources).toEqual(new Set());
+    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.openConfirmations).toBe(2);
+    expect(config.services.codexRadar.predictionConfirmations).toBe(2);
+    expect(config.services.codexRadar.suppressedWindowIds).toEqual(new Set());
+    expect(config.services.codexRadar.suppressedSources).toEqual(new Set());
     expect(config.thirdPartyRequests).toMatchObject({
       maxRetries: 2,
       retryBaseDelayMs: 750,
@@ -50,10 +51,10 @@ describe('loadConfig', () => {
       THIRD_PARTY_RETRY_MAX_DELAY_MS: '200'
     });
 
-    expect(config.jobs.codexRadar.openConfirmations).toBe(2);
-    expect(config.jobs.codexRadar.predictionConfirmations).toBe(2);
-    expect(config.jobs.codexRadar.suppressedWindowIds).toEqual(new Set());
-    expect(config.jobs.codexRadar.suppressedSources).toEqual(new Set());
+    expect(config.services.codexRadar.openConfirmations).toBe(2);
+    expect(config.services.codexRadar.predictionConfirmations).toBe(2);
+    expect(config.services.codexRadar.suppressedWindowIds).toEqual(new Set());
+    expect(config.services.codexRadar.suppressedSources).toEqual(new Set());
     expect(config.thirdPartyRequests.maxRetries).toBe(2);
     expect(config.thirdPartyRequests.retryBaseDelayMs).toBe(750);
     expect(config.thirdPartyRequests.retryMaxDelayMs).toBe(10_000);
@@ -69,6 +70,7 @@ describe('loadConfig', () => {
       FAILURE_ALERT_THRESHOLD: '',
       PORT: '',
       LOG_LEVEL: '',
+      CODEX_RADAR_ENABLED: '',
       CODEX_RADAR_URL: '',
       CODEX_RADAR_CRON: ''
     });
@@ -81,10 +83,29 @@ describe('loadConfig', () => {
     expect(config.scheduler.failureAlertThreshold).toBe(3);
     expect(config.health.port).toBe(3000);
     expect(config.logging.level).toBe('info');
-    expect(config.jobs.codexRadar.url).toBe(
+    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.url).toBe(
       'https://codexradar.com/current.json'
     );
-    expect(config.jobs.codexRadar.cron).toBe('*/10 * * * *');
+    expect(config.services.codexRadar.cron).toBe('*/10 * * * *');
+  });
+
+  it('parses CodexRadar enable flags from environment values', () => {
+    const enabledConfig = loadConfig({
+      DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      CODEX_RADAR_ENABLED: 'true'
+    });
+    const disabledConfig = loadConfig({
+      DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      CODEX_RADAR_ENABLED: '0'
+    });
+
+    expect(enabledConfig.services.codexRadar.enabled).toBe(true);
+    expect(disabledConfig.services.codexRadar.enabled).toBe(false);
   });
 
   it('uses source defaults for unresolved compose placeholders', () => {
@@ -97,6 +118,7 @@ describe('loadConfig', () => {
       FAILURE_ALERT_THRESHOLD: '${FAILURE_ALERT_THRESHOLD:-3}',
       PORT: '${PORT:-3000}',
       LOG_LEVEL: '${LOG_LEVEL:-info}',
+      CODEX_RADAR_ENABLED: '${CODEX_RADAR_ENABLED:-false}',
       CODEX_RADAR_URL:
         '${CODEX_RADAR_URL:-https://codexradar.com/current.json}',
       CODEX_RADAR_CRON: '${CODEX_RADAR_CRON:-*/10 * * * *}'
@@ -109,10 +131,11 @@ describe('loadConfig', () => {
     expect(config.scheduler.failureAlertThreshold).toBe(3);
     expect(config.health.port).toBe(3000);
     expect(config.logging.level).toBe('info');
-    expect(config.jobs.codexRadar.url).toBe(
+    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.url).toBe(
       'https://codexradar.com/current.json'
     );
-    expect(config.jobs.codexRadar.cron).toBe('*/10 * * * *');
+    expect(config.services.codexRadar.cron).toBe('*/10 * * * *');
   });
 
   it('requires Telegram delivery configuration', () => {

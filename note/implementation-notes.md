@@ -1,3 +1,13 @@
+## 2026-06-16
+
+### 01:16 - 多服务注册边界与 CodexRadar 默认禁用
+
+- 问题或设计问题：项目后续会加入多个不同监控服务，继续把任务直接硬编码在 `src/jobs/index.ts` 会让“平台调度核心”和“具体服务模块”耦合；同时当前 CodexRadar 需要先默认不启用，避免部署后自动轮询。
+- 相关上下文或约束：现有 `JobDefinition`、`JobRunner`、`SchedulerService`、`NotificationRouter` 已经形成稳定边界，运行历史、失败计数和去重都以 `jobId` 为键；这部分不应因为新增服务而频繁变动。
+- 考虑过的方案：直接在旧 `createJobs()` 加 `if` 最小，但后续每加一个服务仍会集中修改 jobs 目录；做数据库动态任务配置更灵活，但当前单实例 Docker 服务还没有运行时启停、按 chat 订阅或多实例服务配置需求，复杂度过早。
+- 最终决策和理由：新增 `src/services/registry.ts` 作为服务注册入口，并把 CodexRadar 移到 `src/services/codex-radar/`；每个服务模块返回自己的 `JobDefinition[]`，由 `CODEX_RADAR_ENABLED` 这类显式配置决定是否注册。调度、运行、通知和状态核心保持不变。
+- 剩余权衡、风险或后续工作：`CODEX_RADAR_ENABLED` 默认 `false` 会让生产环境升级后不再注册 CodexRadar，必须在确实需要监控的部署环境显式设置为 `true`；后续新增多实例服务时，需要在 `jobId` 中包含稳定实例标识，避免状态和去重互相覆盖。
+
 ## 2026-06-02
 
 ### 20:50 - 数据库访问与去重策略
