@@ -1,5 +1,13 @@
 ## 2026-06-17
 
+### 22:13 - esbuild 二次 Dependabot 告警处理
+
+- 问题或设计问题：Dependabot 新增两条 `esbuild` 告警，影响范围从 `>=0.17.0, <0.28.1` 到 `>=0.27.3, <0.28.1`，旧的路径级 `resolutions` 只把 Drizzle 传递依赖压到 `0.25.12`，已经低于新的修复版本要求。
+- 相关上下文或约束：`esbuild` 仍然不是项目直接业务依赖，而是 `drizzle-kit`、`tsup`、`tsx` 和 `@esbuild-kit/core-utils` 传递引入；同时这些工具声明的版本范围不一致，单独升级其中一个工具无法覆盖全部锁文件实例。
+- 考虑过的方案：逐个升级构建工具会扩大变更面，而且不保证所有上游立即放宽到 `0.28.1`；继续使用只覆盖 Drizzle 传递路径会留下 `tsup`/`tsx` 的旧锁文件实例；新增替代构建工具没有必要。
+- 最终决策和理由：把 Yarn v1 `resolutions` 收敛为全局 `esbuild: 0.28.1`，让锁文件只保留一个修复后的 `esbuild` 版本。这样变更集中在依赖解析层，避免重写构建配置，同时可用现有格式、测试和构建命令验证兼容性。
+- 剩余权衡、风险或后续工作：Yarn 会提示该覆盖不满足部分上游声明的旧范围；如果未来 `drizzle-kit`、`tsup`、`tsx` 都原生依赖 `0.28.1` 或更高版本，应删除该覆盖并重新生成锁文件。
+
 ### 11:04 - CodexRadar v2 官方事件与 RSS 兜底
 
 - 问题或设计问题：CodexRadar 页面和接口从旧的预测/历史窗口口径转向“官方窗口/重置提醒”，`current.json` 新增顶层 `window`、`source_url`、`recommended_action` 和 `links.rss`，旧实现只识别 `current_window`/`last_window`，会漏掉当前开启中的官方窗口。

@@ -42,6 +42,6 @@
     "vitest": "^4.0.13"
   },
   "resolutions": {
-    "drizzle-kit/@esbuild-kit/esm-loader/@esbuild-kit/core-utils/esbuild": "0.25.12"
+    "esbuild": "0.28.1"
   }
 }
