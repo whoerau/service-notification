@@ -1,5 +1,13 @@
 ## 2026-06-17
 
+### 11:28 - Coolify 触发被 Cloudflare challenge 拦截
+
+- 问题或设计问题：`main` 推送后的 CI 已完成 Node 检查和 GHCR 镜像构建/推送，但最后调用 Coolify service restart API 时收到 Cloudflare managed challenge 的 403 HTML，导致整条 Action 标红。
+- 相关上下文或约束：`COOLIFY_URL`、`COOLIFY_TOKEN`、`COOLIFY_SERVICE_UUID` secrets 都已配置；Coolify 中 `service-notification` 当前为 `running:healthy`。仓库侧无法通过代码绕过 Cloudflare challenge，也不应把 Coolify 凭据写入仓库。
+- 考虑过的方案：直接 `continue-on-error` 会连缺少 secrets 或真实 API 错误也吞掉；完全移除部署触发会失去现有自动重启能力；改 GitHub secrets 指向不受 challenge 保护的 URL 需要外部配置，不能只靠代码提交完成。
+- 最终决策和理由：保留 secrets 必填校验和普通 Coolify API 错误失败；仅当 curl 返回 403 且响应识别为 Cloudflare challenge 页面时，改为 GitHub warning 并让 CI 保持镜像推送成功状态。这避免外部防护页把质量检查拖成失败，同时不掩盖 token 缺失、404、5xx 等真实配置或服务错误。
+- 剩余权衡、风险或后续工作：这种情况下 CI 变绿不代表 Coolify 已部署新镜像；仍需要在 Cloudflare/Coolify 侧给 GitHub Actions 可用的 API 通道，或改用专门的部署 webhook/内网触发路径。
+
 ### 11:04 - CodexRadar v2 官方事件与 RSS 兜底
 
 - 问题或设计问题：CodexRadar 页面和接口从旧的预测/历史窗口口径转向“官方窗口/重置提醒”，`current.json` 新增顶层 `window`、`source_url`、`recommended_action` 和 `links.rss`，旧实现只识别 `current_window`/`last_window`，会漏掉当前开启中的官方窗口。
