@@ -102,7 +102,7 @@ jobs:
           test -n "$COOLIFY_TOKEN"
           test -n "$COOLIFY_SERVICE_UUID"
           test -n "$COOLIFY_ORIGIN_IP"
-          COOLIFY_HOST="${COOLIFY_URL#*://}"; COOLIFY_HOST="${COOLIFY_HOST%%/*}"
+          COOLIFY_HOST="${COOLIFY_URL#*://}"; COOLIFY_HOST="${COOLIFY_HOST%%/*}"; COOLIFY_HOST="${COOLIFY_HOST%%:*}"
 
           curl --fail-with-body --show-error --silent \
             --request GET \
