@@ -65,10 +65,6 @@ ghcr.io/whoerau/service-notification:sha-<commit>
 - `COOLIFY_TOKEN`
 - `COOLIFY_SERVICE_UUID`
 
-如果 `COOLIFY_URL` 被 Cloudflare managed challenge 拦截，workflow 会记录
-warning 并保留镜像推送成功状态；需要在 Cloudflare/Coolify 侧放行 GitHub
-Actions 后，部署触发才会真正执行。
-
 ## Docker
 
 Dockerfile 使用 BuildKit cache mounts 缓存 apt、Yarn、native prebuild 和

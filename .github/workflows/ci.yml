@@ -101,16 +101,7 @@ jobs:
           test -n "$COOLIFY_TOKEN"
           test -n "$COOLIFY_SERVICE_UUID"
 
-          response_file="$(mktemp)"
-          http_code="$(curl --fail-with-body --show-error --silent --output "$response_file" --write-out "%{http_code}" \
+          curl --fail-with-body --show-error --silent \
             --request GET \
             "${COOLIFY_URL%/}/api/v1/services/${COOLIFY_SERVICE_UUID}/restart?latest=true" \
-            --header "Authorization: Bearer ${COOLIFY_TOKEN}")" || {
-            if [ "$http_code" = "403" ] && grep -Eqi "challenge-platform|Just a moment" "$response_file"; then
-              echo "::warning::Coolify deployment trigger was blocked by Cloudflare challenge (HTTP 403); image push succeeded."
-              exit 0
-            fi
-
-            cat "$response_file"
-            exit 1
-          }
+            --header "Authorization: Bearer ${COOLIFY_TOKEN}"
