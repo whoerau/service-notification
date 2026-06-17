@@ -64,6 +64,7 @@ ghcr.io/whoerau/service-notification:sha-<commit>
 - `COOLIFY_URL`
 - `COOLIFY_TOKEN`
 - `COOLIFY_SERVICE_UUID`
+- `COOLIFY_ORIGIN_IP`
 
 ## Docker
 

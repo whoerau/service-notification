@@ -96,12 +96,15 @@ jobs:
           COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_SERVICE_UUID: ${{ secrets.COOLIFY_SERVICE_UUID }}
+          COOLIFY_ORIGIN_IP: ${{ secrets.COOLIFY_ORIGIN_IP }}
         run: |
           test -n "$COOLIFY_URL"
           test -n "$COOLIFY_TOKEN"
           test -n "$COOLIFY_SERVICE_UUID"
+          test -n "$COOLIFY_ORIGIN_IP"
 
           curl --fail-with-body --show-error --silent \
             --request GET \
+            --resolve "coolboard.mnxzow.com:443:${COOLIFY_ORIGIN_IP}" \
             "${COOLIFY_URL%/}/api/v1/services/${COOLIFY_SERVICE_UUID}/restart?latest=true" \
             --header "Authorization: Bearer ${COOLIFY_TOKEN}"
