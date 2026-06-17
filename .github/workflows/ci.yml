@@ -102,9 +102,10 @@ jobs:
           test -n "$COOLIFY_TOKEN"
           test -n "$COOLIFY_SERVICE_UUID"
           test -n "$COOLIFY_ORIGIN_IP"
+          COOLIFY_HOST="${COOLIFY_URL#*://}"; COOLIFY_HOST="${COOLIFY_HOST%%/*}"
 
           curl --fail-with-body --show-error --silent \
             --request GET \
-            --resolve "coolboard.mnxzow.com:443:${COOLIFY_ORIGIN_IP}" \
+            --resolve "${COOLIFY_HOST}:443:${COOLIFY_ORIGIN_IP}" \
             "${COOLIFY_URL%/}/api/v1/services/${COOLIFY_SERVICE_UUID}/restart?latest=true" \
             --header "Authorization: Bearer ${COOLIFY_TOKEN}"
