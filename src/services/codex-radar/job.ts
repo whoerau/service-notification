@@ -1,6 +1,11 @@
+import { load } from 'cheerio';
 import { z } from 'zod';
 import type { AppConfig } from '../../config.js';
+import type { FetchService } from '../../fetch/fetch-service.js';
 import type { JobDefinition, NotificationEnvelope } from '../../types.js';
+
+// ponytail: RSS is a timely fallback; widen this if historical backfill is needed.
+const RSS_EVENT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 const sourceSchema = z
   .object({
@@ -15,11 +20,14 @@ const windowSchema = z
     title: z.string().optional().nullable(),
     status: z.string().optional().nullable(),
     state: z.string().optional().nullable(),
+    open: z.boolean().optional().nullable(),
+    action: z.string().optional().nullable(),
     opened_at: z.string().optional().nullable(),
     closed_at: z.string().optional().nullable(),
     window_minutes: z.number().optional().nullable(),
     window_human: z.string().optional().nullable(),
     source: z.string().optional().nullable(),
+    source_url: z.string().optional().nullable(),
     sources: z.array(sourceSchema).optional().nullable(),
     scope: z.string().optional().nullable(),
     summary: z.string().optional().nullable(),
@@ -34,16 +42,24 @@ const codexRadarSchema = z
     monitored_at: z.string().optional(),
     status: z.string().optional(),
     window_open: z.boolean().optional(),
+    recommended_action: z.string().optional(),
     message: z.string().optional(),
-    current_window: windowSchema.optional(),
-    last_window: windowSchema.optional(),
+    window: windowSchema.optional().nullable(),
+    current_window: windowSchema.optional().nullable(),
+    last_window: windowSchema.optional().nullable(),
+    recent_windows: z.array(windowSchema).optional().nullable(),
+    links: z
+      .object({
+        html: z.string().optional(),
+        rss: z.string().optional()
+      })
+      .passthrough()
+      .optional(),
     prediction: z
       .object({
         level: z.string().optional(),
         probability_24h: z.number().optional(),
-        probability_48h: z.number().optional(),
-        expected_window: z.string().optional(),
-        should_notify: z.boolean().optional()
+        probability_48h: z.number().optional()
       })
       .passthrough()
       .optional()
@@ -51,26 +67,23 @@ const codexRadarSchema = z
   .passthrough();
 
 type CodexRadarResponse = z.infer<typeof codexRadarSchema>;
-type CodexRadarWindow = NonNullable<CodexRadarResponse['current_window']>;
+type CodexRadarWindow = z.infer<typeof windowSchema>;
 type CodexRadarDecision =
   | 'closed'
   | 'pending'
   | 'confirmed'
   | 'suppressed'
   | 'insufficient';
+type WindowEventType = 'open' | 'close';
 
 const candidateMetadataSchema = z
   .object({
+    candidateEventKey: z.string().optional(),
     candidateWindowId: z.string().optional(),
     candidateSource: z.string().optional(),
     candidateOpenCount: z.number().int().nonnegative().optional(),
     candidateFirstSeenAt: z.string().optional(),
-    candidateLastSeenAt: z.string().optional(),
-    predictionHighCount: z.number().int().nonnegative().optional(),
-    predictionHighFirstSeenAt: z.string().optional(),
-    predictionHighLastSeenAt: z.string().optional(),
-    predictionPrealertDate: z.string().optional(),
-    predictionHighLevel: z.string().optional()
+    candidateLastSeenAt: z.string().optional()
   })
   .passthrough();
 
@@ -78,41 +91,42 @@ interface CodexRadarEvaluation {
   decision: CodexRadarDecision;
   reportReady: boolean;
   notifications: NotificationEnvelope[];
+  eventType?: WindowEventType;
+  candidateEventKey?: string;
   candidateWindowId?: string;
   candidateSource?: string;
   candidateOpenCount?: number;
   candidateFirstSeenAt?: string;
   candidateLastSeenAt?: string;
-  predictionHighCount?: number;
-  predictionHighFirstSeenAt?: string;
-  predictionHighLastSeenAt?: string;
-  predictionPrealertDate?: string;
-  predictionHighLevel?: string;
   openedAt?: string;
   closedAt?: string;
   source?: string;
+  action?: string;
   directReset?: boolean;
   suppressionReason?: 'window_id' | 'source';
 }
 
 type CandidateMetadata = z.infer<typeof candidateMetadataSchema>;
 
-interface CompletedWindowCandidate {
+interface WindowEventCandidate {
   window: CodexRadarWindow;
+  eventType: WindowEventType;
+  eventKey: string;
   windowId: string;
   source?: string;
   openedAt: string;
-  closedAt: string;
+  closedAt?: string;
+  action?: string;
   directReset: boolean;
 }
 
-interface PredictionEvaluation {
-  notification?: NotificationEnvelope;
-  predictionHighCount: number;
-  predictionHighFirstSeenAt?: string;
-  predictionHighLastSeenAt?: string;
-  predictionPrealertDate?: string;
-  predictionHighLevel?: string;
+interface RssEvent {
+  eventType: WindowEventType;
+  guid: string;
+  title: string;
+  link?: string;
+  pubDate?: string;
+  description?: string;
 }
 
 export function createCodexRadarJob(config: AppConfig): JobDefinition {
@@ -140,32 +154,45 @@ export function createCodexRadarJob(config: AppConfig): JobDefinition {
         config,
         previousState?.metadata
       );
+      const observedAt = observedAtFor(data);
+      const rss = evaluation.candidateEventKey
+        ? { feedUrl: undefined, event: undefined }
+        : await latestOfficialFeedEvent(fetcher, data, response.url, signal);
 
       return {
         ok: true,
-        notifications: evaluation.notifications,
+        notifications: [
+          ...evaluation.notifications,
+          ...(rss.event
+            ? [createRssEventNotification(rss.event, rss.feedUrl)]
+            : [])
+        ],
         metadata: {
-          checkedAt: data.checked_at ?? data.monitored_at,
+          schemaVersion: data.schema_version,
+          checkedAt: observedAt,
           status: data.status,
           windowOpen: isWindowCurrentlyOpen(data),
           decision: evaluation.decision,
           reportReady: evaluation.reportReady,
+          eventType: evaluation.eventType,
+          candidateEventKey: evaluation.candidateEventKey,
           candidateWindowId: evaluation.candidateWindowId,
           candidateSource: evaluation.candidateSource,
           candidateOpenCount: evaluation.candidateOpenCount,
           candidateFirstSeenAt: evaluation.candidateFirstSeenAt,
           candidateLastSeenAt: evaluation.candidateLastSeenAt,
-          predictionHighCount: evaluation.predictionHighCount,
-          predictionHighFirstSeenAt: evaluation.predictionHighFirstSeenAt,
-          predictionHighLastSeenAt: evaluation.predictionHighLastSeenAt,
-          predictionPrealertDate: evaluation.predictionPrealertDate,
-          predictionHighLevel: evaluation.predictionHighLevel,
           openedAt: evaluation.openedAt,
           closedAt: evaluation.closedAt,
           source: evaluation.source,
+          action: evaluation.action,
           directReset: evaluation.directReset,
           suppressionReason: evaluation.suppressionReason,
-          message: data.message,
+          message: currentWindowFor(data)?.message ?? data.message,
+          recommendedAction: data.recommended_action,
+          rssFeedUrl: rss.feedUrl,
+          rssGuid: rss.event?.guid,
+          rssTitle: rss.event?.title,
+          rssPubDate: rss.event?.pubDate,
           predictionLevel: data.prediction?.level,
           probability24h: data.prediction?.probability_24h,
           probability48h: data.prediction?.probability_48h
@@ -181,57 +208,44 @@ function evaluateCodexRadarWindow(
   config: AppConfig,
   previousMetadata?: Record<string, unknown> | null
 ): CodexRadarEvaluation {
-  const observedAt =
-    data.checked_at ?? data.monitored_at ?? new Date().toISOString();
+  const observedAt = observedAtFor(data);
   const previous = parseCandidateMetadata(previousMetadata);
-  const prediction = evaluateCodexRadarPrediction(
-    data,
-    sourceUrl,
-    config,
-    previous,
-    observedAt
-  );
-  const current = data.current_window;
-  const candidate = completedWindowCandidateFor(data);
+  const current = currentWindowFor(data);
+  const candidate = windowEventCandidateFor(data);
 
   if (!candidate) {
     return {
       decision: isExplicitlyClosed(data, current) ? 'closed' : 'insufficient',
       reportReady: false,
-      notifications: notificationList(prediction),
-      ...predictionMetadata(prediction),
+      notifications: [],
       openedAt: textOrUndefined(current?.opened_at),
       closedAt: textOrUndefined(current?.closed_at),
-      source: sourceFromWindow(current)
+      source: sourceFromWindow(current),
+      action: actionFromWindow(data, current)
     };
   }
 
-  const { window, windowId, source, openedAt, closedAt, directReset } =
-    candidate;
-  const suppressionReason = suppressionReasonFor(windowId, source, config);
+  const suppressionReason = suppressionReasonFor(
+    candidate.windowId,
+    candidate.source,
+    config
+  );
 
   if (suppressionReason) {
     return {
       decision: 'suppressed',
       reportReady: false,
-      notifications: notificationList(prediction),
-      candidateWindowId: windowId,
-      candidateSource: source,
-      candidateOpenCount: 0,
-      ...predictionMetadata(prediction),
-      openedAt,
-      closedAt,
-      source,
-      directReset,
+      notifications: [],
+      ...candidateMetadata(candidate, 0, observedAt, observedAt),
       suppressionReason
     };
   }
 
-  const sameWindow = previous.candidateWindowId === windowId;
+  const sameCandidate = previous.candidateEventKey === candidate.eventKey;
   const candidateOpenCount =
-    (sameWindow ? (previous.candidateOpenCount ?? 0) : 0) + 1;
+    (sameCandidate ? (previous.candidateOpenCount ?? 0) : 0) + 1;
   const candidateFirstSeenAt =
-    sameWindow && previous.candidateFirstSeenAt
+    sameCandidate && previous.candidateFirstSeenAt
       ? previous.candidateFirstSeenAt
       : observedAt;
   const candidateLastSeenAt = observedAt;
@@ -242,138 +256,177 @@ function evaluateCodexRadarWindow(
   return {
     decision,
     reportReady,
-    notifications: [
-      ...(reportReady
-        ? [
-            createCompletedWindowNotification(
-              data,
-              window,
-              sourceUrl,
-              windowId,
-              directReset
-            )
-          ]
-        : []),
-      ...notificationList(prediction)
-    ],
-    candidateWindowId: windowId,
-    candidateSource: source,
+    notifications: reportReady
+      ? [createWindowEventNotification(data, candidate, sourceUrl)]
+      : [],
+    ...candidateMetadata(
+      candidate,
+      candidateOpenCount,
+      candidateFirstSeenAt,
+      candidateLastSeenAt
+    )
+  };
+}
+
+async function latestOfficialFeedEvent(
+  fetcher: FetchService,
+  data: CodexRadarResponse,
+  sourceUrl: string,
+  signal: AbortSignal
+): Promise<{ feedUrl: string; event?: RssEvent }> {
+  const feedUrl = officialFeedUrlFor(data, sourceUrl);
+  const response = await fetcher.html(feedUrl, {
+    timeoutMs: 20_000,
+    signal,
+    headers: {
+      Accept: 'application/rss+xml,application/xml;q=0.9,*/*;q=0.8'
+    }
+  });
+  const $ = load(response.html, { xmlMode: true });
+  const item = $('item').first();
+
+  if (!item.length) {
+    return { feedUrl: response.url };
+  }
+
+  const title = textOrUndefined(item.find('title').first().text());
+  const guid = textOrUndefined(item.find('guid').first().text());
+  const pubDate = textOrUndefined(item.find('pubDate').first().text());
+  const eventType = eventTypeFromTitle(title);
+
+  if (
+    !title ||
+    !guid ||
+    !eventType ||
+    !isRecentRssEvent(pubDate, observedAtFor(data))
+  ) {
+    return { feedUrl: response.url };
+  }
+
+  return {
+    feedUrl: response.url,
+    event: {
+      eventType,
+      guid,
+      title,
+      link: textOrUndefined(item.find('link').first().text()),
+      pubDate,
+      description: textOrUndefined(item.find('description').first().text())
+    }
+  };
+}
+
+function createRssEventNotification(
+  event: RssEvent,
+  feedUrl: string
+): NotificationEnvelope {
+  const lines = [
+    'CodexRadar RSS 发布官方窗口/重置提醒。',
+    '',
+    event.title,
+    event.pubDate ? `发布时间：${event.pubDate}` : null,
+    event.description,
+    event.link ? `详情：${event.link}` : null,
+    '',
+    `RSS：${feedUrl}`
+  ].filter((line): line is string => Boolean(line));
+
+  return {
+    destination: 'telegram',
+    title:
+      event.eventType === 'open'
+        ? 'Codex 速蹬窗口已开启'
+        : 'Codex 速蹬窗口已关闭',
+    message: lines.join('\n'),
+    dedupeKey: `codex-radar:rss:${event.guid}`,
+    severity: 'critical',
+    metadata: {
+      eventType: event.eventType,
+      guid: event.guid,
+      link: event.link,
+      pubDate: event.pubDate,
+      feedUrl
+    }
+  };
+}
+
+function candidateMetadata(
+  candidate: WindowEventCandidate,
+  candidateOpenCount: number,
+  candidateFirstSeenAt: string,
+  candidateLastSeenAt: string
+) {
+  return {
+    eventType: candidate.eventType,
+    candidateEventKey: candidate.eventKey,
+    candidateWindowId: candidate.windowId,
+    candidateSource: candidate.source,
     candidateOpenCount,
     candidateFirstSeenAt,
     candidateLastSeenAt,
-    ...predictionMetadata(prediction),
-    openedAt,
-    closedAt,
-    source,
-    directReset
+    openedAt: candidate.openedAt,
+    closedAt: candidate.closedAt,
+    source: candidate.source,
+    action: candidate.action,
+    directReset: candidate.directReset
   };
 }
 
-function evaluateCodexRadarPrediction(
-  data: CodexRadarResponse,
-  sourceUrl: string,
-  config: AppConfig,
-  previous: CandidateMetadata,
-  observedAt: string
-): PredictionEvaluation {
-  const level = textOrUndefined(data.prediction?.level);
-  const localDate = localDateFor(observedAt, config.scheduler.timezone);
-  const previousPrealertDate = previous.predictionPrealertDate;
-
-  if (!isHighPredictionLevel(level)) {
-    return {
-      predictionHighCount: 0,
-      predictionPrealertDate: previousPrealertDate
-    };
-  }
-
-  const predictionHighCount = (previous.predictionHighCount ?? 0) + 1;
-  const predictionHighFirstSeenAt =
-    previous.predictionHighCount && previous.predictionHighFirstSeenAt
-      ? previous.predictionHighFirstSeenAt
-      : observedAt;
-  const predictionHighLastSeenAt = observedAt;
-  const shouldPrealert =
-    predictionHighCount >= config.services.codexRadar.predictionConfirmations &&
-    previousPrealertDate !== localDate;
-  const predictionPrealertDate = shouldPrealert
-    ? localDate
-    : previousPrealertDate;
-
-  return {
-    notification: shouldPrealert
-      ? createPredictionPrealertNotification(
-          data,
-          sourceUrl,
-          localDate,
-          predictionHighCount,
-          level
-        )
-      : undefined,
-    predictionHighCount,
-    predictionHighFirstSeenAt,
-    predictionHighLastSeenAt,
-    predictionPrealertDate,
-    predictionHighLevel: level
-  };
-}
-
-function notificationList(
-  prediction: PredictionEvaluation
-): NotificationEnvelope[] {
-  return prediction.notification ? [prediction.notification] : [];
-}
-
-function predictionMetadata(prediction: PredictionEvaluation) {
-  return {
-    predictionHighCount: prediction.predictionHighCount,
-    predictionHighFirstSeenAt: prediction.predictionHighFirstSeenAt,
-    predictionHighLastSeenAt: prediction.predictionHighLastSeenAt,
-    predictionPrealertDate: prediction.predictionPrealertDate,
-    predictionHighLevel: prediction.predictionHighLevel
-  };
-}
-
-function isWindowCurrentlyOpen(data: CodexRadarResponse): boolean {
-  return (
-    data.window_open === true ||
-    isOpenValue(data.status) ||
-    isOpenValue(data.current_window?.state) ||
-    isOpenValue(data.current_window?.status)
-  );
-}
-
-function isExplicitlyClosed(
-  data: CodexRadarResponse,
-  current?: CodexRadarWindow
-): boolean {
-  return (
-    data.window_open === false ||
-    isClosedValue(data.status) ||
-    isClosedValue(current?.state) ||
-    isClosedValue(current?.status)
-  );
-}
-
-function completedWindowCandidateFor(
+function windowEventCandidateFor(
   data: CodexRadarResponse
-): CompletedWindowCandidate | undefined {
-  const currentCandidate = completedWindowCandidateFrom(data.current_window);
+): WindowEventCandidate | undefined {
+  const current = currentWindowFor(data);
+  const openCandidate = openWindowCandidateFrom(data, current);
 
-  if (currentCandidate) {
-    return currentCandidate;
+  if (openCandidate || isWindowCurrentlyOpen(data)) {
+    return openCandidate;
   }
 
-  if (isWindowCurrentlyOpen(data)) {
+  const closedCurrentCandidate = closedWindowCandidateFrom(data, current);
+
+  if (closedCurrentCandidate) {
+    return closedCurrentCandidate;
+  }
+
+  for (const window of [...(data.recent_windows ?? []), data.last_window]) {
+    const candidate = closedWindowCandidateFrom(data, window);
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function openWindowCandidateFrom(
+  data: CodexRadarResponse,
+  window: CodexRadarWindow | null | undefined
+): WindowEventCandidate | undefined {
+  if (
+    !window ||
+    !(
+      window.open === true ||
+      isOpenValue(window.status) ||
+      isOpenValue(window.state)
+    )
+  ) {
     return undefined;
   }
 
-  return completedWindowCandidateFrom(data.last_window);
+  const openedAt = textOrUndefined(window.opened_at);
+
+  if (!openedAt) {
+    return undefined;
+  }
+
+  return createCandidate(data, window, 'open', openedAt);
 }
 
-function completedWindowCandidateFrom(
-  window: CodexRadarWindow | undefined
-): CompletedWindowCandidate | undefined {
+function closedWindowCandidateFrom(
+  data: CodexRadarResponse,
+  window: CodexRadarWindow | null | undefined
+): WindowEventCandidate | undefined {
   if (!window) {
     return undefined;
   }
@@ -385,39 +438,107 @@ function completedWindowCandidateFrom(
     return undefined;
   }
 
+  return createCandidate(data, window, 'close', openedAt, closedAt);
+}
+
+function createCandidate(
+  data: CodexRadarResponse,
+  window: CodexRadarWindow,
+  eventType: WindowEventType,
+  openedAt: string,
+  closedAt?: string
+): WindowEventCandidate {
+  const windowId = stableWindowId(window);
+
   return {
     window,
-    windowId: stableWindowId(window),
+    eventType,
+    eventKey: `${eventType}:${windowId}`,
+    windowId,
     source: sourceFromWindow(window),
     openedAt,
     closedAt,
-    directReset: isDirectResetWindow(window, openedAt, closedAt)
+    action: actionFromWindow(data, window),
+    directReset:
+      eventType === 'close' &&
+      Boolean(closedAt) &&
+      isDirectResetWindow(window, openedAt, closedAt)
   };
 }
 
-function createCompletedWindowNotification(
+function createWindowEventNotification(
   data: CodexRadarResponse,
-  window: CodexRadarWindow,
-  sourceUrl: string,
-  windowId: string,
-  directReset: boolean
+  candidate: WindowEventCandidate,
+  sourceUrl: string
 ): NotificationEnvelope {
+  if (candidate.eventType === 'open') {
+    return createOpenWindowNotification(data, candidate, sourceUrl);
+  }
+
+  return createClosedWindowNotification(data, candidate, sourceUrl);
+}
+
+function createOpenWindowNotification(
+  data: CodexRadarResponse,
+  candidate: WindowEventCandidate,
+  sourceUrl: string
+): NotificationEnvelope {
+  const { window, windowId, source, openedAt, action } = candidate;
+  const title = textOrUndefined(window.title) ?? 'Codex 速蹬窗口已开启';
+  const summary =
+    textOrUndefined(window.summary) ??
+    textOrUndefined(window.message) ??
+    data.message;
+  const scope = textOrUndefined(window.scope);
+  const actionText = formatAction(action);
+  const lines = [
+    'CodexRadar 检测到官方速蹬窗口开启。',
+    '',
+    `窗口：${title}`,
+    `开启时间：${openedAt}`,
+    scope ? `范围：${scope}` : null,
+    actionText ? `建议：${actionText}` : null,
+    summary ? `说明：${summary}` : null,
+    source ? `来源：${source}` : null,
+    '',
+    `状态接口：${sourceUrl}`
+  ].filter((line): line is string => Boolean(line));
+
+  return {
+    destination: 'telegram',
+    title: 'Codex 速蹬窗口已开启',
+    message: lines.join('\n'),
+    dedupeKey: `codex-radar:window-open:${windowId}`,
+    severity: 'critical',
+    metadata: {
+      eventType: 'open',
+      windowId,
+      openedAt,
+      source,
+      action,
+      checkedAt: data.checked_at ?? data.monitored_at
+    }
+  };
+}
+
+function createClosedWindowNotification(
+  data: CodexRadarResponse,
+  candidate: WindowEventCandidate,
+  sourceUrl: string
+): NotificationEnvelope {
+  const { window, windowId, source, openedAt, closedAt, directReset } =
+    candidate;
   const title =
     textOrUndefined(window.title) ??
     (directReset ? 'Codex 使用限制已直接重置' : 'Codex 速蹬窗口记录已确认');
-  const openedAt = textOrUndefined(window.opened_at);
-  const closedAt = textOrUndefined(window.closed_at);
-  const source = sourceFromWindow(window) ?? sourceUrl;
   const summary =
     textOrUndefined(window.summary) ??
     textOrUndefined(window.message) ??
     data.message;
   const scope = textOrUndefined(window.scope);
 
-  if (!openedAt || !closedAt) {
-    throw new Error(
-      'Cannot report CodexRadar window without opened_at and closed_at'
-    );
+  if (!closedAt) {
+    throw new Error('Cannot report CodexRadar close event without closed_at');
   }
 
   const lines = (
@@ -434,7 +555,7 @@ function createCompletedWindowNotification(
           `状态接口：${sourceUrl}`
         ]
       : [
-          'CodexRadar 检测到一条已完成的速蹬窗口记录。',
+          'CodexRadar 检测到速蹬窗口关闭。',
           '',
           `窗口：${title}`,
           `开启时间：${openedAt}`,
@@ -449,13 +570,12 @@ function createCompletedWindowNotification(
 
   return {
     destination: 'telegram',
-    title: directReset
-      ? 'Codex 使用限制已直接重置'
-      : 'Codex 速蹬窗口记录已确认',
+    title: directReset ? 'Codex 使用限制已直接重置' : 'Codex 速蹬窗口已关闭',
     message: lines.join('\n'),
-    dedupeKey: `codex-radar:window-report:${windowId}`,
+    dedupeKey: `codex-radar:window-close:${windowId}`,
     severity: 'critical',
     metadata: {
+      eventType: 'close',
       windowId,
       openedAt,
       closedAt,
@@ -468,47 +588,85 @@ function createCompletedWindowNotification(
   };
 }
 
-function createPredictionPrealertNotification(
+function currentWindowFor(data: CodexRadarResponse): CodexRadarWindow | null {
+  return data.window ?? data.current_window ?? null;
+}
+
+function observedAtFor(data: CodexRadarResponse): string {
+  return data.checked_at ?? data.monitored_at ?? new Date().toISOString();
+}
+
+function officialFeedUrlFor(
   data: CodexRadarResponse,
-  sourceUrl: string,
-  localDate: string,
-  predictionHighCount: number,
-  level: string
-): NotificationEnvelope {
-  const probability24h = formatProbability(data.prediction?.probability_24h);
-  const probability48h = formatProbability(data.prediction?.probability_48h);
-  const expectedWindow = textOrUndefined(data.prediction?.expected_window);
-  const message = textOrUndefined(data.message);
+  sourceUrl: string
+): string {
+  const configured = textOrUndefined(data.links?.rss);
 
-  const lines = [
-    'CodexRadar 预测雷达连续呈现高概率。',
-    '',
-    `连续确认：${predictionHighCount} 次`,
-    `等级：${level}`,
-    probability24h ? `24小时概率：${probability24h}` : null,
-    probability48h ? `48小时概率：${probability48h}` : null,
-    expectedWindow ? `预测窗口：${expectedWindow}` : null,
-    message ? `说明：${message}` : null,
-    '',
-    `状态接口：${sourceUrl}`
-  ].filter((line): line is string => Boolean(line));
+  if (configured) {
+    return configured;
+  }
 
-  return {
-    destination: 'telegram',
-    title: 'Codex 速蹬窗口高概率预提醒',
-    message: lines.join('\n'),
-    dedupeKey: `codex-radar:prediction-prealert:${localDate}`,
-    severity: 'warning',
-    metadata: {
-      localDate,
-      predictionHighCount,
-      predictionLevel: level,
-      probability24h: data.prediction?.probability_24h,
-      probability48h: data.prediction?.probability_48h,
-      expectedWindow,
-      checkedAt: data.checked_at ?? data.monitored_at
-    }
-  };
+  return new URL('/feed.xml', sourceUrl).toString();
+}
+
+function eventTypeFromTitle(
+  title: string | undefined
+): WindowEventType | undefined {
+  if (!title) {
+    return undefined;
+  }
+
+  if (title.includes('开启')) {
+    return 'open';
+  }
+
+  if (title.includes('关闭') || title.includes('重置')) {
+    return 'close';
+  }
+
+  return undefined;
+}
+
+function isRecentRssEvent(
+  pubDate: string | undefined,
+  observedAt: string
+): boolean {
+  const eventMs = pubDate ? Date.parse(pubDate) : NaN;
+  const observedMs = Date.parse(observedAt);
+
+  if (!Number.isFinite(eventMs) || !Number.isFinite(observedMs)) {
+    return false;
+  }
+
+  return (
+    eventMs <= observedMs + 60 * 60 * 1000 &&
+    observedMs - eventMs <= RSS_EVENT_MAX_AGE_MS
+  );
+}
+
+function isWindowCurrentlyOpen(data: CodexRadarResponse): boolean {
+  const current = currentWindowFor(data);
+
+  return (
+    data.window_open === true ||
+    current?.open === true ||
+    isOpenValue(data.status) ||
+    isOpenValue(current?.state) ||
+    isOpenValue(current?.status)
+  );
+}
+
+function isExplicitlyClosed(
+  data: CodexRadarResponse,
+  current?: CodexRadarWindow | null
+): boolean {
+  return (
+    data.window_open === false ||
+    current?.open === false ||
+    isClosedValue(data.status) ||
+    isClosedValue(current?.state) ||
+    isClosedValue(current?.status)
+  );
 }
 
 function stableWindowId(window: CodexRadarWindow): string {
@@ -526,13 +684,14 @@ function stableWindowId(window: CodexRadarWindow): string {
 }
 
 function sourceFromWindow(
-  window: CodexRadarWindow | undefined
+  window: CodexRadarWindow | null | undefined
 ): string | undefined {
   if (!window) {
     return undefined;
   }
 
-  const explicitSource = textOrUndefined(window.source);
+  const explicitSource =
+    textOrUndefined(window.source) ?? textOrUndefined(window.source_url);
 
   if (explicitSource) {
     return explicitSource;
@@ -548,6 +707,15 @@ function sourceFromWindow(
   return (
     textOrUndefined(closedSource?.url) ??
     textOrUndefined(sources.find((source) => textOrUndefined(source.url))?.url)
+  );
+}
+
+function actionFromWindow(
+  data: CodexRadarResponse,
+  window: CodexRadarWindow | null | undefined
+): string | undefined {
+  return (
+    textOrUndefined(window?.action) ?? textOrUndefined(data.recommended_action)
   );
 }
 
@@ -574,49 +742,13 @@ function parseCandidateMetadata(
   return parsed.success ? parsed.data : {};
 }
 
-function isHighPredictionLevel(value: string | null | undefined): boolean {
-  const normalized = textOrUndefined(value)
-    ?.toLowerCase()
-    .replace(/[\s-]+/g, '_');
-
-  return (
-    normalized === 'high' ||
-    normalized === 'high_probability' ||
-    normalized === '高概率'
-  );
-}
-
-function localDateFor(value: string, timezone: string): string {
-  const date = new Date(value);
-  const formatter = new Intl.DateTimeFormat('en', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const parts = formatter.formatToParts(
-    Number.isNaN(date.valueOf()) ? new Date() : date
-  );
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-
-  if (!year || !month || !day) {
-    return new Date().toISOString().slice(0, 10);
+function formatAction(value: string | undefined): string | undefined {
+  switch (textOrUndefined(value)?.toLowerCase()) {
+    case 'use_remaining_tokens':
+      return '尽快使用剩余额度';
+    default:
+      return textOrUndefined(value);
   }
-
-  return `${year}-${month}-${day}`;
-}
-
-function formatProbability(value: number | undefined): string | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return undefined;
-  }
-
-  const percent = value <= 1 ? value * 100 : value;
-  const rounded = Math.round(percent * 10) / 10;
-
-  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded}%`;
 }
 
 function isDirectResetWindow(

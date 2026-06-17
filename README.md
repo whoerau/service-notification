@@ -1,6 +1,6 @@
 # service-notification
 
-一个 Node.js + TypeScript 常驻通知服务。服务通过可启用的任务模块监控不同来源，并把确认后的事件推送到 Telegram。内置 CodexRadar 任务可每 10 分钟访问 `https://codexradar.com/current.json`；当预测雷达连续呈现高概率时先做一次 Telegram 预提醒，当接口提供完整速蹬窗口记录或无窗直接重置记录，并连续确认通过后，再推送正式通知。同一个窗口只通知一次，预测预提醒每天最多一次。
+一个 Node.js + TypeScript 常驻通知服务。服务通过可启用的任务模块监控不同来源，并把确认后的事件推送到 Telegram。内置 CodexRadar 任务可每 10 分钟访问 `https://codexradar.com/current.json`；当接口提供官方速蹬窗口开启、关闭或无窗直接重置记录，并连续确认通过后，推送正式通知。同一个窗口事件只通知一次；如果 JSON 没有窗口候选，会用 `https://codexradar.com/feed.xml` 的近期 RSS item 作为官方提醒兜底。
 
 ## 功能
 
@@ -25,13 +25,13 @@ TZ=Asia/Hong_Kong
 HISTORY_RETENTION_DAYS=30
 FAILURE_ALERT_THRESHOLD=3
 PORT=3000
-CODEX_RADAR_ENABLED=false
+CODEX_RADAR_ENABLED=true
 CODEX_RADAR_URL=https://codexradar.com/current.json
 CODEX_RADAR_CRON=*/10 * * * *
 ```
 
 `TELEGRAM_ALLOWED_CHAT_IDS` 用逗号分隔。非白名单 chat 的任何消息都会被忽略，不回复。
-CodexRadar 默认不注册定时任务；需要启用时设置 `CODEX_RADAR_ENABLED=true`。
+CodexRadar 默认注册定时任务；需要关闭时设置 `CODEX_RADAR_ENABLED=false`。
 CodexRadar 确认次数、误报抑制列表和第三方请求重试策略是代码内固定配置，不通过环境变量调整。
 
 ## 本地运行
@@ -109,12 +109,12 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 
 任务 ID：`codex-radar`
 
-- 默认启用：否，设置 `CODEX_RADAR_ENABLED=true` 后注册
+- 默认启用：是，设置 `CODEX_RADAR_ENABLED=false` 后关闭
 - 默认 cron：`*/10 * * * *`
-- 接口：`https://codexradar.com/current.json`
+- 接口：`https://codexradar.com/current.json`，RSS 兜底：`https://codexradar.com/feed.xml`
 - 规则文档：[`docs/tasks/codex-radar.md`](docs/tasks/codex-radar.md)
-- 预测预提醒：`prediction.level` 连续 2 次为高概率后发送 warning；同一天最多一次。
-- 正式通知：完整窗口或无窗直接重置连续 2 次确认后发送 critical。
+- 正式通知：官方开启、关闭或无窗直接重置连续 2 次确认后发送 critical。
+- RSS 兜底：JSON 没有窗口候选时，近期 RSS 官方 item 会按 guid 发送一次 critical；默认不回填旧 item。
 - 去重和抑制：同一事件只通知一次；已知误报可按事件 ID 或来源在代码内抑制。
 
 如果访问失败，服务会累计连续失败次数；达到 `FAILURE_ALERT_THRESHOLD` 后发送一次失败告警，任务恢复成功后重置计数。

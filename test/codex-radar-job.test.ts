@@ -8,7 +8,7 @@ import { createTestStateStore } from './helpers.js';
 type TestEnv = Parameters<typeof loadConfig>[0];
 
 describe('createCodexRadarJob', () => {
-  it('waits for two high prediction confirmations before emitting a prealert', async () => {
+  it('waits for two JSON v2 open confirmations before emitting an alert', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
       testConfig({
@@ -16,9 +16,9 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher(
-      highPredictionPayload('2026-06-03T10:10:00+08:00'),
-      highPredictionPayload('2026-06-03T10:20:00+08:00')
+    const fetcher = createFetcher(
+      openWindowPayload('2026-06-17T05:33:25+08:00'),
+      openWindowPayload('2026-06-17T05:43:25+08:00')
     );
 
     const first = await runAndPersist(job, state, fetcher);
@@ -26,32 +26,36 @@ describe('createCodexRadarJob', () => {
 
     expect(first.notifications).toEqual([]);
     expect(first.metadata).toMatchObject({
-      decision: 'closed',
+      schemaVersion: '2.0',
+      decision: 'pending',
       reportReady: false,
-      predictionHighCount: 1,
-      predictionHighFirstSeenAt: '2026-06-03T10:10:00+08:00',
-      predictionHighLastSeenAt: '2026-06-03T10:10:00+08:00',
-      predictionHighLevel: '高概率'
+      eventType: 'open',
+      candidateEventKey: 'open:2026-06-17T02:49:52+08:00',
+      candidateOpenCount: 1,
+      windowOpen: true,
+      action: 'use_remaining_tokens'
     });
     expect(second.notifications).toHaveLength(1);
     expect(second.notifications[0]).toMatchObject({
-      title: 'Codex 速蹬窗口高概率预提醒',
-      dedupeKey: 'codex-radar:prediction-prealert:2026-06-03',
-      severity: 'warning'
+      title: 'Codex 速蹬窗口已开启',
+      dedupeKey: 'codex-radar:window-open:2026-06-17T02:49:52+08:00',
+      severity: 'critical',
+      metadata: {
+        eventType: 'open',
+        source: 'https://x.com/thsottiaux/status/2066956441173323943'
+      }
     });
-    expect(second.notifications[0]?.message).toContain('连续确认：2 次');
-    expect(second.notifications[0]?.message).toContain('24小时概率：46%');
-    expect(second.notifications[0]?.message).toContain('48小时概率：55%');
-    expect(second.metadata).toMatchObject({
-      predictionHighCount: 2,
-      predictionPrealertDate: '2026-06-03',
-      predictionHighLevel: '高概率'
-    });
+    expect(second.notifications[0]?.message).toContain(
+      '建议：尽快使用剩余额度'
+    );
+    expect(second.notifications[0]?.message).toContain(
+      '来源：https://x.com/thsottiaux/status/2066956441173323943'
+    );
 
     database.close();
   });
 
-  it('does not repeat high prediction prealerts on the same local day', async () => {
+  it('does not notify on prediction-only payloads', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
       testConfig({
@@ -59,67 +63,27 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher(
-      highPredictionPayload('2026-06-03T10:10:00+08:00'),
-      highPredictionPayload('2026-06-03T10:20:00+08:00'),
-      highPredictionPayload('2026-06-03T10:30:00+08:00')
-    );
-
-    await runAndPersist(job, state, fetcher);
-    const second = await runAndPersist(job, state, fetcher);
-    const third = await runAndPersist(job, state, fetcher);
-
-    expect(second.notifications).toHaveLength(1);
-    expect(third.notifications).toEqual([]);
-    expect(third.metadata).toMatchObject({
-      predictionHighCount: 3,
-      predictionPrealertDate: '2026-06-03'
-    });
-
-    database.close();
-  });
-
-  it('resets high prediction confirmations when the level drops', async () => {
-    const { database, state } = createTestStateStore();
-    const job = createCodexRadarJob(
-      testConfig({
-        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
-        TELEGRAM_ALLOWED_CHAT_IDS: '123'
-      })
-    );
-    const fetcher = createJsonFetcher(
-      highPredictionPayload('2026-06-03T10:10:00+08:00'),
-      highPredictionPayload('2026-06-03T10:20:00+08:00', 'medium', true),
-      highPredictionPayload('2026-06-03T10:30:00+08:00'),
-      highPredictionPayload('2026-06-03T10:40:00+08:00')
+    const fetcher = createFetcher(
+      highPredictionPayload('2026-06-17T10:10:00+08:00'),
+      highPredictionPayload('2026-06-17T10:20:00+08:00')
     );
 
     const first = await runAndPersist(job, state, fetcher);
     const second = await runAndPersist(job, state, fetcher);
-    const third = await runAndPersist(job, state, fetcher);
-    const fourth = await runAndPersist(job, state, fetcher);
 
-    expect(first.metadata).toMatchObject({
-      predictionHighCount: 1
-    });
+    expect(first.notifications).toEqual([]);
     expect(second.notifications).toEqual([]);
     expect(second.metadata).toMatchObject({
-      predictionHighCount: 0
+      decision: 'closed',
+      predictionLevel: '高概率',
+      probability24h: 0.46,
+      probability48h: 55
     });
-    expect(third.notifications).toEqual([]);
-    expect(third.metadata).toMatchObject({
-      predictionHighCount: 1,
-      predictionHighFirstSeenAt: '2026-06-03T10:30:00+08:00'
-    });
-    expect(fourth.notifications).toHaveLength(1);
-    expect(fourth.notifications[0]?.dedupeKey).toBe(
-      'codex-radar:prediction-prealert:2026-06-03'
-    );
 
     database.close();
   });
 
-  it('waits for two complete window confirmations before emitting a report', async () => {
+  it('waits for two complete window confirmations before emitting a close report', async () => {
     const { database, state } = createTestStateStore();
     const config = testConfig({
       CODEX_RADAR_URL: 'https://codexradar.com/current.json',
@@ -127,7 +91,7 @@ describe('createCodexRadarJob', () => {
       TELEGRAM_ALLOWED_CHAT_IDS: '123'
     });
     const job = createCodexRadarJob(config);
-    const fetcher = createJsonFetcher(
+    const fetcher = createFetcher(
       completeWindowPayload('2026-06-03T10:10:00+08:00'),
       completeWindowPayload('2026-06-03T10:20:00+08:00')
     );
@@ -140,18 +104,13 @@ describe('createCodexRadarJob', () => {
     expect(first.metadata).toMatchObject({
       decision: 'pending',
       reportReady: false,
+      eventType: 'close',
       candidateWindowId: 'window-1',
       candidateOpenCount: 1
     });
     expect(second.notifications).toHaveLength(1);
-    expect(second.metadata).toMatchObject({
-      decision: 'confirmed',
-      reportReady: true,
-      candidateWindowId: 'window-1',
-      candidateOpenCount: 2
-    });
     expect(second.notifications[0]?.dedupeKey).toBe(
-      'codex-radar:window-report:window-1'
+      'codex-radar:window-close:window-1'
     );
     expect(second.notifications[0]?.message).toContain(
       '开启时间：2026-06-03T10:00:00+08:00'
@@ -159,7 +118,6 @@ describe('createCodexRadarJob', () => {
     expect(second.notifications[0]?.message).toContain(
       '关闭时间：2026-06-03T10:05:00+08:00'
     );
-    expect(second.notifications[0]?.message).not.toContain('尚未关闭');
 
     database.close();
   });
@@ -172,7 +130,7 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher(
+    const fetcher = createFetcher(
       directResetPayload('2026-06-04T08:43:40+08:00'),
       directResetPayload('2026-06-04T08:53:40+08:00')
     );
@@ -180,24 +138,19 @@ describe('createCodexRadarJob', () => {
     const first = await runAndPersist(job, state, fetcher);
     const second = await runAndPersist(job, state, fetcher);
 
-    expect(first.notifications).toEqual([]);
     expect(first.metadata).toMatchObject({
       decision: 'pending',
-      reportReady: false,
+      eventType: 'close',
       candidateWindowId: 'codex-speed-window-2026-06-04-codex',
-      candidateSource: 'https://x.com/thsottiaux/status/2062329981548802523',
-      candidateOpenCount: 1,
-      directReset: true,
-      openedAt: '2026-06-04T08:25:58+08:00',
-      closedAt: '2026-06-04T08:25:58+08:00'
+      directReset: true
     });
     expect(second.notifications).toHaveLength(1);
     expect(second.notifications[0]).toMatchObject({
       title: 'Codex 使用限制已直接重置',
-      dedupeKey:
-        'codex-radar:window-report:codex-speed-window-2026-06-04-codex',
+      dedupeKey: 'codex-radar:window-close:codex-speed-window-2026-06-04-codex',
       severity: 'critical',
       metadata: {
+        eventType: 'close',
         directReset: true,
         source: 'https://x.com/thsottiaux/status/2062329981548802523',
         windowMinutes: 0,
@@ -205,18 +158,11 @@ describe('createCodexRadarJob', () => {
       }
     });
     expect(second.notifications[0]?.message).toContain('无速蹬窗口直接重置');
-    expect(second.notifications[0]?.message).toContain(
-      '重置时间：2026-06-04T08:25:58+08:00'
-    );
-    expect(second.notifications[0]?.message).toContain('范围：所有付费计划');
-    expect(second.notifications[0]?.message).toContain(
-      '来源：https://x.com/thsottiaux/status/2062329981548802523'
-    );
 
     database.close();
   });
 
-  it('does not report a current open window without closed_at', async () => {
+  it('uses a recent RSS item when JSON has no window candidate', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
       testConfig({
@@ -224,16 +170,90 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher({
-      checked_at: '2026-06-03T10:10:00+08:00',
+    const fetcher = createFetcher({
+      monitored_at: '2026-06-17T12:00:00+08:00',
+      status: 'none',
+      window_open: false,
+      links: {
+        rss: 'https://codexradar.com/feed.xml'
+      }
+    }).withRss(
+      rssFeed({
+        guid: 'codex-speed-window-2026-06-17-open',
+        title: '速蹬窗口开启：官方 24 小时重置窗口',
+        pubDate: 'Wed, 17 Jun 2026 03:59:10 GMT',
+        description: '发现有效重置预告，速蹬窗口开启。'
+      })
+    );
+
+    const result = await runAndPersist(job, state, fetcher);
+
+    expect(result.notifications).toHaveLength(1);
+    expect(result.notifications[0]).toMatchObject({
+      title: 'Codex 速蹬窗口已开启',
+      dedupeKey: 'codex-radar:rss:codex-speed-window-2026-06-17-open',
+      severity: 'critical',
+      metadata: {
+        eventType: 'open',
+        guid: 'codex-speed-window-2026-06-17-open',
+        feedUrl: 'https://codexradar.com/feed.xml'
+      }
+    });
+    expect(result.notifications[0]?.message).toContain(
+      '发现有效重置预告，速蹬窗口开启。'
+    );
+
+    database.close();
+  });
+
+  it('does not backfill stale RSS items', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      testConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createFetcher({
+      monitored_at: '2026-06-17T12:00:00+08:00',
+      status: 'none',
+      window_open: false
+    }).withRss(
+      rssFeed({
+        guid: 'codex-speed-window-2026-06-04-codex-close',
+        title: '速蹬窗口关闭：Codex 可靠性事故补偿重置',
+        pubDate: 'Thu, 04 Jun 2026 00:25:58 GMT',
+        description: '速蹬窗口已关闭。'
+      })
+    );
+
+    const result = await runAndPersist(job, state, fetcher);
+
+    expect(result.notifications).toEqual([]);
+    expect(result.metadata).toMatchObject({
+      rssFeedUrl: 'https://codexradar.com/feed.xml',
+      rssGuid: undefined
+    });
+
+    database.close();
+  });
+
+  it('does not report an open window without opened_at', async () => {
+    const { database, state } = createTestStateStore();
+    const job = createCodexRadarJob(
+      testConfig({
+        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
+        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+      })
+    );
+    const fetcher = createFetcher({
+      monitored_at: '2026-06-17T10:10:00+08:00',
       status: 'open',
       window_open: true,
-      current_window: {
-        id: 'window-1',
+      window: {
+        open: true,
         title: '测试窗口',
-        state: 'open',
-        opened_at: '2026-06-03T10:00:00+08:00',
-        source: 'https://example.com/source'
+        source_url: 'https://example.com/source'
       }
     });
 
@@ -244,13 +264,13 @@ describe('createCodexRadarJob', () => {
       decision: 'insufficient',
       reportReady: false,
       windowOpen: true,
-      openedAt: '2026-06-03T10:00:00+08:00'
+      source: 'https://example.com/source'
     });
 
     database.close();
   });
 
-  it('does not report when the radar window is closed without complete times', async () => {
+  it('resets confirmation when the event key changes', async () => {
     const { database, state } = createTestStateStore();
     const job = createCodexRadarJob(
       testConfig({
@@ -258,52 +278,23 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher({
-      checked_at: '2026-06-03T10:10:00+08:00',
-      status: 'none',
-      window_open: false,
-      current_window: {
-        state: 'none'
-      }
-    });
-
-    const result = await runAndPersist(job, state, fetcher);
-
-    expect(result.notifications).toEqual([]);
-    expect(result.metadata).toMatchObject({
-      decision: 'closed',
-      reportReady: false,
-      windowOpen: false
-    });
-
-    database.close();
-  });
-
-  it('resets confirmation when the window id changes', async () => {
-    const { database, state } = createTestStateStore();
-    const job = createCodexRadarJob(
-      testConfig({
-        CODEX_RADAR_URL: 'https://codexradar.com/current.json',
-        TELEGRAM_ALLOWED_CHAT_IDS: '123'
+    const fetcher = createFetcher(
+      openWindowPayload('2026-06-17T05:33:25+08:00'),
+      openWindowPayload('2026-06-17T05:43:25+08:00', {
+        openedAt: '2026-06-17T03:49:52+08:00'
       })
-    );
-    const fetcher = createJsonFetcher(
-      completeWindowPayload('2026-06-03T10:10:00+08:00', 'window-1'),
-      completeWindowPayload('2026-06-03T10:20:00+08:00', 'window-2')
     );
 
     const first = await runAndPersist(job, state, fetcher);
     const second = await runAndPersist(job, state, fetcher);
 
     expect(first.metadata).toMatchObject({
-      decision: 'pending',
-      candidateWindowId: 'window-1',
+      candidateEventKey: 'open:2026-06-17T02:49:52+08:00',
       candidateOpenCount: 1
     });
     expect(second.notifications).toEqual([]);
     expect(second.metadata).toMatchObject({
-      decision: 'pending',
-      candidateWindowId: 'window-2',
+      candidateEventKey: 'open:2026-06-17T03:49:52+08:00',
       candidateOpenCount: 1
     });
 
@@ -318,7 +309,7 @@ describe('createCodexRadarJob', () => {
         TELEGRAM_ALLOWED_CHAT_IDS: '123'
       })
     );
-    const fetcher = createJsonFetcher({
+    const fetcher = createFetcher({
       checked_at: '2026-06-03T10:10:00+08:00',
       status: 'open',
       window_open: true,
@@ -341,9 +332,9 @@ describe('createCodexRadarJob', () => {
 
     expect(result.notifications).toEqual([]);
     expect(result.metadata).toMatchObject({
-      decision: 'insufficient',
-      reportReady: false,
-      windowOpen: true,
+      decision: 'pending',
+      eventType: 'open',
+      candidateWindowId: 'current-window',
       openedAt: '2026-06-03T10:00:00+08:00'
     });
 
@@ -361,10 +352,10 @@ describe('createCodexRadarJob', () => {
       'https://example.com/bad-source'
     );
     const job = createCodexRadarJob(config);
-    const idFetcher = createJsonFetcher(
+    const idFetcher = createFetcher(
       completeWindowPayload('2026-06-03T10:10:00+08:00', 'window-1')
     );
-    const sourceFetcher = createJsonFetcher(
+    const sourceFetcher = createFetcher(
       completeWindowPayload(
         '2026-06-03T10:20:00+08:00',
         'window-2',
@@ -400,6 +391,36 @@ function testConfig(env: TestEnv) {
   });
 }
 
+function openWindowPayload(
+  monitoredAt: string,
+  options: { openedAt?: string } = {}
+) {
+  return {
+    schema_version: '2.0',
+    service: 'codex-reset-radar',
+    monitored_at: monitoredAt,
+    timezone: 'Asia/Shanghai',
+    window_open: true,
+    status: 'open',
+    recommended_action: 'use_remaining_tokens',
+    window: {
+      open: true,
+      status: 'open',
+      action: 'use_remaining_tokens',
+      message: '当前速蹬窗口开启',
+      title: 'Codex 用量限制重置',
+      scope: '所有计划',
+      opened_at: options.openedAt ?? '2026-06-17T02:49:52+08:00',
+      closed_at: null,
+      source_url: 'https://x.com/thsottiaux/status/2066956441173323943'
+    },
+    links: {
+      html: 'https://codexradar.com/',
+      rss: 'https://codexradar.com/feed.xml'
+    }
+  };
+}
+
 function completeWindowPayload(
   checkedAt: string,
   id = 'window-1',
@@ -420,22 +441,17 @@ function completeWindowPayload(
   };
 }
 
-function highPredictionPayload(
-  checkedAt: string,
-  level = '高概率',
-  shouldNotify = false
-) {
+function highPredictionPayload(checkedAt: string) {
   return {
     checked_at: checkedAt,
     status: 'none',
     window_open: false,
     message: '预测雷达显示出现强 reset 邻近信号。',
     prediction: {
-      level,
+      level: '高概率',
       probability_24h: 0.46,
       probability_48h: 55,
-      expected_window: '未来 48 小时',
-      should_notify: shouldNotify
+      expected_window: '未来 48 小时'
     }
   };
 }
@@ -477,10 +493,12 @@ function directResetPayload(checkedAt: string) {
   };
 }
 
-function createJsonFetcher(...payloads: unknown[]): FetchService {
+function createFetcher(...payloads: unknown[]): FetchService & {
+  withRss(xml: string): FetchService;
+} {
   let calls = 0;
-
-  return {
+  let rssXml = rssFeed();
+  const fetcher: FetchService & { withRss(xml: string): FetchService } = {
     async json() {
       const data = payloads[Math.min(calls, payloads.length - 1)];
       calls += 1;
@@ -493,9 +511,49 @@ function createJsonFetcher(...payloads: unknown[]): FetchService {
       };
     },
     async html() {
-      throw new Error('unused');
+      return {
+        url: 'https://codexradar.com/feed.xml',
+        status: 200,
+        headers: new Headers(),
+        html: rssXml,
+        $: undefined as never
+      };
+    },
+    withRss(xml: string) {
+      rssXml = xml;
+      return fetcher;
     }
   };
+
+  return fetcher;
+}
+
+function rssFeed(item?: {
+  guid: string;
+  title: string;
+  pubDate: string;
+  description: string;
+  link?: string;
+}) {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Codex 雷达</title>
+    <link>https://codexradar.com/</link>
+    <description>只发布 Codex 速蹬窗口开启和关闭提醒。</description>
+    ${
+      item
+        ? `<item>
+      <title>${item.title}</title>
+      <link>${item.link ?? 'https://codexradar.com/'}</link>
+      <guid isPermaLink="false">${item.guid}</guid>
+      <pubDate>${item.pubDate}</pubDate>
+      <description><![CDATA[${item.description}]]></description>
+    </item>`
+        : ''
+    }
+  </channel>
+</rss>`;
 }
 
 async function runAndPersist(

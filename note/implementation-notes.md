@@ -1,3 +1,13 @@
+## 2026-06-17
+
+### 11:04 - CodexRadar v2 官方事件与 RSS 兜底
+
+- 问题或设计问题：CodexRadar 页面和接口从旧的预测/历史窗口口径转向“官方窗口/重置提醒”，`current.json` 新增顶层 `window`、`source_url`、`recommended_action` 和 `links.rss`，旧实现只识别 `current_window`/`last_window`，会漏掉当前开启中的官方窗口。
+- 相关上下文或约束：服务仍需要避免源站瞬时错误造成 Telegram 刷屏；用户希望 CodexRadar 默认启用，同时截图确认 RSS 官方提醒也有价值。项目已有统一 fetcher、任务 metadata 和通知去重表，不需要新增数据库结构。
+- 考虑过的方案：只改 JSON 最小，但会浪费官方 RSS 的稳定 `guid`；改成只读 RSS 会失去 JSON 当前状态和行动建议；同时无条件发送 JSON 与 RSS 会让同一事件出现两条提醒。
+- 最终决策和理由：任务优先解析 JSON v2 的 `window`，兼容旧 `current_window`、`recent_windows`、`last_window`；官方开启、关闭和无窗重置都继续要求连续 2 次 JSON 确认。只有 JSON 没有窗口候选时才读取 `feed.xml` 最新 item，按 RSS `guid` 发送一次兜底提醒。预测字段只记录到 metadata，不再触发通知，因为最新页面将提醒语义限定在官方窗口/重置事件。
+- 剩余权衡、风险或后续工作：RSS 兜底默认只接受 48 小时内的 item，避免新部署补发陈旧历史；如果未来需要历史回填，需要放宽或移除该窗口。JSON 与 RSS 可能仍在源站短暂不同步，当前策略选择减少重复通知而不是追求每个来源都单独提醒。
+
 ## 2026-06-16
 
 ### 01:16 - 多服务注册边界与 CodexRadar 默认禁用

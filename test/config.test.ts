@@ -24,9 +24,8 @@ describe('loadConfig', () => {
     });
 
     expect(config.scheduler.timezone).toBe('Asia/Hong_Kong');
-    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.enabled).toBe(true);
     expect(config.services.codexRadar.openConfirmations).toBe(2);
-    expect(config.services.codexRadar.predictionConfirmations).toBe(2);
     expect(config.services.codexRadar.suppressedWindowIds).toEqual(new Set());
     expect(config.services.codexRadar.suppressedSources).toEqual(new Set());
     expect(config.thirdPartyRequests).toMatchObject({
@@ -42,7 +41,6 @@ describe('loadConfig', () => {
       TELEGRAM_BOT_TOKEN: 'token',
       TELEGRAM_ALLOWED_CHAT_IDS: '123',
       CODEX_RADAR_OPEN_CONFIRMATIONS: '3',
-      CODEX_RADAR_PREDICTION_CONFIRMATIONS: '4',
       CODEX_RADAR_SUPPRESSED_WINDOW_IDS: 'window-1, window-2,',
       CODEX_RADAR_SUPPRESSED_SOURCES:
         'https://example.com/source, https://example.com/other',
@@ -52,7 +50,6 @@ describe('loadConfig', () => {
     });
 
     expect(config.services.codexRadar.openConfirmations).toBe(2);
-    expect(config.services.codexRadar.predictionConfirmations).toBe(2);
     expect(config.services.codexRadar.suppressedWindowIds).toEqual(new Set());
     expect(config.services.codexRadar.suppressedSources).toEqual(new Set());
     expect(config.thirdPartyRequests.maxRetries).toBe(2);
@@ -83,7 +80,7 @@ describe('loadConfig', () => {
     expect(config.scheduler.failureAlertThreshold).toBe(3);
     expect(config.health.port).toBe(3000);
     expect(config.logging.level).toBe('info');
-    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.enabled).toBe(true);
     expect(config.services.codexRadar.url).toBe(
       'https://codexradar.com/current.json'
     );
@@ -118,7 +115,7 @@ describe('loadConfig', () => {
       FAILURE_ALERT_THRESHOLD: '${FAILURE_ALERT_THRESHOLD:-3}',
       PORT: '${PORT:-3000}',
       LOG_LEVEL: '${LOG_LEVEL:-info}',
-      CODEX_RADAR_ENABLED: '${CODEX_RADAR_ENABLED:-false}',
+      CODEX_RADAR_ENABLED: '${CODEX_RADAR_ENABLED:-true}',
       CODEX_RADAR_URL:
         '${CODEX_RADAR_URL:-https://codexradar.com/current.json}',
       CODEX_RADAR_CRON: '${CODEX_RADAR_CRON:-*/10 * * * *}'
@@ -131,7 +128,7 @@ describe('loadConfig', () => {
     expect(config.scheduler.failureAlertThreshold).toBe(3);
     expect(config.health.port).toBe(3000);
     expect(config.logging.level).toBe('info');
-    expect(config.services.codexRadar.enabled).toBe(false);
+    expect(config.services.codexRadar.enabled).toBe(true);
     expect(config.services.codexRadar.url).toBe(
       'https://codexradar.com/current.json'
     );

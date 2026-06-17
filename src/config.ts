@@ -3,7 +3,6 @@ import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 
 const CODEX_RADAR_OPEN_CONFIRMATIONS = 2;
-const CODEX_RADAR_PREDICTION_CONFIRMATIONS = 2;
 const CODEX_RADAR_SUPPRESSED_WINDOW_IDS: string[] = [];
 const CODEX_RADAR_SUPPRESSED_SOURCES: string[] = [];
 const THIRD_PARTY_USER_AGENT =
@@ -24,7 +23,7 @@ const envSchema = z.object({
     ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'],
     'info'
   ),
-  CODEX_RADAR_ENABLED: envBoolean(false),
+  CODEX_RADAR_ENABLED: envBoolean(true),
   CODEX_RADAR_URL: envUrl('https://codexradar.com/current.json'),
   CODEX_RADAR_CRON: envString('*/10 * * * *')
 });
@@ -62,7 +61,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         url: parsed.CODEX_RADAR_URL,
         cron: parsed.CODEX_RADAR_CRON,
         openConfirmations: CODEX_RADAR_OPEN_CONFIRMATIONS,
-        predictionConfirmations: CODEX_RADAR_PREDICTION_CONFIRMATIONS,
         suppressedWindowIds: new Set(CODEX_RADAR_SUPPRESSED_WINDOW_IDS),
         suppressedSources: new Set(CODEX_RADAR_SUPPRESSED_SOURCES)
       }
