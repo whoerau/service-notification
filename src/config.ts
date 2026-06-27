@@ -5,6 +5,7 @@ import { z } from 'zod';
 const CODEX_RADAR_OPEN_CONFIRMATIONS = 2;
 const CODEX_RADAR_SUPPRESSED_WINDOW_IDS: string[] = [];
 const CODEX_RADAR_SUPPRESSED_SOURCES: string[] = [];
+const NEZHA_RELEASE_BASELINE_TAG = 'v2.2.6';
 const THIRD_PARTY_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 const THIRD_PARTY_MAX_RETRIES = 2;
@@ -25,7 +26,12 @@ const envSchema = z.object({
   ),
   CODEX_RADAR_ENABLED: envBoolean(true),
   CODEX_RADAR_URL: envUrl('https://codexradar.com/current.json'),
-  CODEX_RADAR_CRON: envString('*/10 * * * *')
+  CODEX_RADAR_CRON: envString('*/10 * * * *'),
+  NEZHA_RELEASE_ENABLED: envBoolean(true),
+  NEZHA_RELEASE_URL: envUrl(
+    'https://api.github.com/repos/nezhahq/nezha/releases/latest'
+  ),
+  NEZHA_RELEASE_CRON: envString('0 */12 * * *')
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -63,6 +69,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         openConfirmations: CODEX_RADAR_OPEN_CONFIRMATIONS,
         suppressedWindowIds: new Set(CODEX_RADAR_SUPPRESSED_WINDOW_IDS),
         suppressedSources: new Set(CODEX_RADAR_SUPPRESSED_SOURCES)
+      },
+      nezhaRelease: {
+        enabled: parsed.NEZHA_RELEASE_ENABLED,
+        url: parsed.NEZHA_RELEASE_URL,
+        cron: parsed.NEZHA_RELEASE_CRON,
+        baselineTag: NEZHA_RELEASE_BASELINE_TAG
       }
     },
     thirdPartyRequests: {

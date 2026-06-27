@@ -1,6 +1,6 @@
 # service-notification
 
-一个 Node.js + TypeScript 常驻通知服务。服务通过可启用的任务模块监控不同来源，并把确认后的事件推送到 Telegram。内置 CodexRadar 任务可每 10 分钟访问 `https://codexradar.com/current.json`；当接口提供官方速蹬窗口开启、关闭或无窗直接重置记录，并连续确认通过后，推送正式通知。同一个窗口事件只通知一次；如果 JSON 没有窗口候选，会用 `https://codexradar.com/feed.xml` 的近期 RSS item 作为官方提醒兜底。
+一个 Node.js + TypeScript 常驻通知服务。服务通过可启用的任务模块监控不同来源，并把确认后的事件推送到 Telegram。内置 CodexRadar 任务可每 10 分钟访问 `https://codexradar.com/current.json`；Nezha Release 任务每 12 小时检查 `nezhahq/nezha` 最新稳定 release。同一事件只通知一次。
 
 ## 功能
 
@@ -28,11 +28,15 @@ PORT=3000
 CODEX_RADAR_ENABLED=true
 CODEX_RADAR_URL=https://codexradar.com/current.json
 CODEX_RADAR_CRON=*/10 * * * *
+NEZHA_RELEASE_ENABLED=true
+NEZHA_RELEASE_URL=https://api.github.com/repos/nezhahq/nezha/releases/latest
+NEZHA_RELEASE_CRON=0 */12 * * *
 ```
 
 `TELEGRAM_ALLOWED_CHAT_IDS` 用逗号分隔。非白名单 chat 的任何消息都会被忽略，不回复。
 CodexRadar 默认注册定时任务；需要关闭时设置 `CODEX_RADAR_ENABLED=false`。
 CodexRadar 确认次数、误报抑制列表和第三方请求重试策略是代码内固定配置，不通过环境变量调整。
+Nezha Release 默认注册定时任务；需要关闭时设置 `NEZHA_RELEASE_ENABLED=false`。它以代码内固定基线 `v2.2.6` 判断后续稳定版本。
 
 ## 本地运行
 
@@ -119,6 +123,19 @@ Compose restart policy 使用 `on-failure:2`，避免配置错误时无限重启
 - 去重和抑制：同一事件只通知一次；已知误报可按事件 ID 或来源在代码内抑制。
 
 如果访问失败，服务会累计连续失败次数；达到 `FAILURE_ALERT_THRESHOLD` 后发送一次失败告警，任务恢复成功后重置计数。
+
+## Nezha Release 任务
+
+任务 ID：`nezha-release`
+
+- 默认启用：是，设置 `NEZHA_RELEASE_ENABLED=false` 后关闭
+- 默认 cron：`0 */12 * * *`
+- 接口：`https://api.github.com/repos/nezhahq/nezha/releases/latest`
+- 规则文档：[`docs/tasks/nezha-release.md`](docs/tasks/nezha-release.md)
+- 基线版本：`v2.2.6`
+- 正式通知：发现高于已记录版本的稳定 release 后发送 info，正文包含版本、发布时间、GitHub 详情链接和 release notes 摘要。
+
+任务状态保存在 SQLite `task_states` metadata 中，服务重启后不会重复通知同一最新版本。如果持久化数据库丢失，任务会重新以 `v2.2.6` 作为基线判断。
 
 ## 第三方访问策略
 

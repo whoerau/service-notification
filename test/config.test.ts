@@ -28,6 +28,12 @@ describe('loadConfig', () => {
     expect(config.services.codexRadar.openConfirmations).toBe(2);
     expect(config.services.codexRadar.suppressedWindowIds).toEqual(new Set());
     expect(config.services.codexRadar.suppressedSources).toEqual(new Set());
+    expect(config.services.nezhaRelease).toMatchObject({
+      enabled: true,
+      url: 'https://api.github.com/repos/nezhahq/nezha/releases/latest',
+      cron: '0 */12 * * *',
+      baselineTag: 'v2.2.6'
+    });
     expect(config.thirdPartyRequests).toMatchObject({
       maxRetries: 2,
       retryBaseDelayMs: 750,
@@ -69,7 +75,10 @@ describe('loadConfig', () => {
       LOG_LEVEL: '',
       CODEX_RADAR_ENABLED: '',
       CODEX_RADAR_URL: '',
-      CODEX_RADAR_CRON: ''
+      CODEX_RADAR_CRON: '',
+      NEZHA_RELEASE_ENABLED: '',
+      NEZHA_RELEASE_URL: '',
+      NEZHA_RELEASE_CRON: ''
     });
 
     expect(config.telegram.botToken).toBe('token');
@@ -85,6 +94,11 @@ describe('loadConfig', () => {
       'https://codexradar.com/current.json'
     );
     expect(config.services.codexRadar.cron).toBe('*/10 * * * *');
+    expect(config.services.nezhaRelease.enabled).toBe(true);
+    expect(config.services.nezhaRelease.url).toBe(
+      'https://api.github.com/repos/nezhahq/nezha/releases/latest'
+    );
+    expect(config.services.nezhaRelease.cron).toBe('0 */12 * * *');
   });
 
   it('parses CodexRadar enable flags from environment values', () => {
@@ -105,6 +119,24 @@ describe('loadConfig', () => {
     expect(disabledConfig.services.codexRadar.enabled).toBe(false);
   });
 
+  it('parses Nezha release enable flags from environment values', () => {
+    const enabledConfig = loadConfig({
+      DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      NEZHA_RELEASE_ENABLED: 'yes'
+    });
+    const disabledConfig = loadConfig({
+      DATABASE_PATH: './data/test-config.sqlite',
+      TELEGRAM_BOT_TOKEN: 'token',
+      TELEGRAM_ALLOWED_CHAT_IDS: '123',
+      NEZHA_RELEASE_ENABLED: 'off'
+    });
+
+    expect(enabledConfig.services.nezhaRelease.enabled).toBe(true);
+    expect(disabledConfig.services.nezhaRelease.enabled).toBe(false);
+  });
+
   it('uses source defaults for unresolved compose placeholders', () => {
     const config = loadConfig({
       TELEGRAM_BOT_TOKEN: 'token',
@@ -118,7 +150,11 @@ describe('loadConfig', () => {
       CODEX_RADAR_ENABLED: '${CODEX_RADAR_ENABLED:-true}',
       CODEX_RADAR_URL:
         '${CODEX_RADAR_URL:-https://codexradar.com/current.json}',
-      CODEX_RADAR_CRON: '${CODEX_RADAR_CRON:-*/10 * * * *}'
+      CODEX_RADAR_CRON: '${CODEX_RADAR_CRON:-*/10 * * * *}',
+      NEZHA_RELEASE_ENABLED: '${NEZHA_RELEASE_ENABLED:-true}',
+      NEZHA_RELEASE_URL:
+        '${NEZHA_RELEASE_URL:-https://api.github.com/repos/nezhahq/nezha/releases/latest}',
+      NEZHA_RELEASE_CRON: '${NEZHA_RELEASE_CRON:-0 */12 * * *}'
     });
 
     expect(config.telegram.botToken).toBe('token');
@@ -133,6 +169,11 @@ describe('loadConfig', () => {
       'https://codexradar.com/current.json'
     );
     expect(config.services.codexRadar.cron).toBe('*/10 * * * *');
+    expect(config.services.nezhaRelease.enabled).toBe(true);
+    expect(config.services.nezhaRelease.url).toBe(
+      'https://api.github.com/repos/nezhahq/nezha/releases/latest'
+    );
+    expect(config.services.nezhaRelease.cron).toBe('0 */12 * * *');
   });
 
   it('requires Telegram delivery configuration', () => {
